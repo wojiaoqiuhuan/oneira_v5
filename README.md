@@ -1,102 +1,62 @@
-# ONEIRA 烘焙连锁工作台 V5.2
+# ONEIRA 梦面包｜连锁烘焙运营工作台
 
-GitHub + Railway 可部署生产基础版。技术栈：Node.js 20、Express 5、PostgreSQL、Socket.IO。
+这是 ONEIRA V5.2 的 Manus Space 生产版。它是一个手机优先的连锁烘焙运营 Web App，支持店长、运营、管理员三种角色，数据使用 Manus Space 托管的 MySQL 兼容数据库，不使用 Supabase、Render、Railway 或浏览器 localStorage 作为数据库。
 
-## 最快上线方式
+## 已实现能力
 
-### 1. 上传 GitHub
+- 店长：只能查看自己的门店，直接填写今日日报、查看历史日报、目标月历和问题处理结果。
+- 运营：查看全部门店、日报状态、目标完成情况、问题反馈和 CSV 导出。
+- 管理员：管理门店、店长员工、日报模板和操作日志。
+- 日报：动态字段、必填校验、一店一天一份、重复提交覆盖并保留版本号。
+- 目标：月目标支持按天平均、周末权重、自定义每日目标，并自动回填日报实际营业额和完成率。
+- 问题反馈：提交、处理、处理结果和审计记录完整关联。
+- 权限：后端 API 强制校验角色和门店范围，不依赖前端隐藏按钮。
+- 同步：同一服务内提供 Socket.IO 变更通知，所有数据来自同一个数据库。
+- 发布：Docker 生产入口，监听 `PORT`，健康检查 `/api/health`。
 
-在 GitHub 新建一个空仓库，例如 `oneira-workbench`，把本项目根目录的全部文件上传进去。
+## 默认登录信息
 
-不要再套一层文件夹；`package.json`、`Dockerfile`、`server.js` 应该直接位于仓库根目录。
+首次启动会幂等初始化：
 
-### 2. Railway 连接 GitHub
+| 角色 | 账号/门店 | 密码或口令 |
+|---|---|---|
+| 店长 | 门店：咸阳店；姓名：李店长 | `BAKE2024` |
+| 运营 | `运营` | `oneira2026` |
+| 管理员 | `管理员` | `oneira2026` |
 
-在 Railway 新建 Project → Deploy from GitHub Repo → 选择刚才的仓库。
+上线后请立即修改默认管理员和运营密码；当前管理页面支持员工与门店管理，生产环境建议后续增加独立密码修改页。
 
-Railway 会识别根目录的 `Dockerfile` / `railway.toml` 并构建。
+## Manus Space 发布方式
 
-### 3. 创建 PostgreSQL
+本项目已经按 Manus Space 的托管方式配置：`server=true`、`database=true`，数据库连接由运行时的 `DATABASE_URL` 注入，服务由根目录 `Dockerfile` 启动，健康检查为 `/api/health`。
 
-在同一个 Railway Project 中新增 PostgreSQL 服务，并将 PostgreSQL 的 `DATABASE_URL` 注入 Web 服务。
+平台启动时会执行 `db/migrations/001_initial.sql`，并通过 `schema_migrations` 记录完成状态；随后只补充缺失的初始化数据，不覆盖已有业务数据。开发 Preview 和正式发布使用同一个项目数据库，因此不要在生产数据上反复做破坏性 DDL。
 
-Railway 通常可以直接使用 PostgreSQL 服务提供的 `DATABASE_URL` 变量；如果界面要求选择引用变量，选择 PostgreSQL 服务的 `DATABASE_URL` 即可。
+### 在 Manus Space 中发布
 
-### 4. 设置 JWT_SECRET
+1. 打开当前项目的 Manus Space Dashboard。
+2. 确认项目已启用 Server 和 Database。
+3. 等待 Preview 显示 ONEIRA 登录页，并访问 `/api/health` 确认返回 `ok: true`。
+4. 点击 **Publish** 发布当前 checkpoint。
+5. 使用上面的默认账号完成登录、日报、目标、反馈和管理员模板同步测试。
 
-在 Web Service → Variables 添加：
+不需要安装 Node，不需要配置 Supabase，也不需要购买 Render 或 Railway。
 
-```text
-JWT_SECRET=<随机长字符串>
-NODE_ENV=production
-```
-
-`PORT` 不需要手动设置，Railway 会提供；应用会自动读取 `process.env.PORT`。
-
-### 5. 发布
-
-点击 Deploy。健康检查地址：
-
-```text
-/api/health
-```
-
-看到：
-
-```json
-{"ok":true,"version":"5.2.0","service":"oneira-workbench"}
-```
-
-即表示服务已正常启动并连接数据库。
-
-## 默认演示账号
-
-店长：
-- 门店：咸阳店
-- 姓名：李店长
-- 口令：BAKE2024
-
-运营：
-- 姓名：运营
-- 密码：oneira2026
-
-管理员：
-- 姓名：管理员
-- 密码：oneira2026
-
-正式上线后请立即修改管理员/运营密码和 JWT_SECRET。
-
-## 数据初始化
-
-应用第一次连接数据库时会自动执行 `schema.sql`，创建表并写入演示数据；已有数据不会重复初始化。
-
-## GitHub 更新自动发布
-
-以后修改代码并 push 到 GitHub：
+## 本地检查
 
 ```bash
-git add .
-git commit -m "update"
-git push
+npm ci
+npm run migrate
+npm start
 ```
 
-Railway 会根据项目设置自动重新部署。
+需要设置 `DATABASE_URL` 和可选的 `JWT_SECRET`。生产环境不要使用默认 JWT secret。
 
-## 重要安全说明
+## 目录
 
-- 正式环境只使用 HTTPS。
-- 不要把 `.env` 提交到 GitHub。
-- `JWT_SECRET` 必须使用随机长字符串。
-- 正式上线后修改演示账号密码。
-- 生产环境建议将 CORS 限制为正式域名。
-- 删除/归档等关键操作应在正式运营前进行完整测试。
-
-## 核心数据链路
-
-日报 → KPI → 每日任务实际完成 → 月历完成率
-
-问题反馈 → 运营处理 → 店长可见
-
-管理员日报模板 → 店长日报表单
-
-门店口令 / 员工姓名 → 登录与操作追溯
+- `server.js`：Express API、认证、角色权限和数据联动。
+- `db/migrations/001_initial.sql`：MySQL 兼容初始迁移。
+- `scripts/migrate.js`：幂等迁移和初始化种子。
+- `public/index.html`：手机优先的工作台界面。
+- `public/manus-routes.json`：Manus Space 页面路由清单。
+- `Dockerfile`：生产容器入口。

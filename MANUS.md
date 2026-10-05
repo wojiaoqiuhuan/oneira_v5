@@ -1,38 +1,27 @@
-# Manus 一键部署说明
+# Manus Space 运行说明
 
-这是 ONEIRA 烘焙连锁工作台 V5.1 可部署项目，已整理为标准 Node.js + PostgreSQL + Socket.IO 服务。
+ONEIRA 梦面包 V5.2 已迁移到 Manus Space 的 Node + MySQL 兼容数据库运行方式。项目不使用 Supabase、Render 或 Railway。
 
-## Manus 部署
+## 服务启动顺序
 
-1. 将整个项目导入 Manus。
-2. 选择 Node.js / Docker 项目均可；优先使用 Dockerfile。
-3. 配置 PostgreSQL 数据库，并注入 `DATABASE_URL`。
-4. 注入 `JWT_SECRET`（随机长字符串）。
-5. `NODE_ENV=production`。
-6. 启动命令：`npm start`（Docker 模式无需额外配置）。
-7. 健康检查：`GET /api/health`。
-8. 部署后直接访问 Manus 提供的公网域名。
+1. 读取 `DATABASE_URL`。
+2. 建立 `schema_migrations` 表并执行未完成迁移。
+3. 幂等初始化咸阳店、李店长、运营、管理员和日报字段。
+4. 监听 `0.0.0.0:$PORT`。
+5. `/api/health` 返回成功后进入可用状态。
 
-## 数据库
+## 安全边界
 
-服务首次启动会自动执行 `schema.sql` 并创建演示数据。生产环境建议先用测试数据库验证，再切换正式数据库。
+所有写操作和受保护读取都在后端通过 JWT 角色校验。店长请求会绑定自己的 `store_id`，不能通过前端参数读取其他门店。数据库凭据和 JWT secret 只从运行时环境读取，不进入前端文件。
 
-## 默认演示账号
+## 发布检查
 
-- 店长：咸阳店 / 李店长 / BAKE2024
-- 运营：运营 / oneira2026
-- 管理员：管理员 / oneira2026
+```bash
+node --check server.js
+node --check scripts/migrate.js
+npm run migrate
+curl -fsS http://127.0.0.1:3000/api/health
+curl -fsS http://127.0.0.1:3000/manus-routes.json
+```
 
-上线后立即修改管理员密码、门店口令和 JWT_SECRET。
-
-## 关键运行参数
-
-- Node.js 20+
-- HTTP 端口：`PORT`，平台会自动注入
-- PostgreSQL：`DATABASE_URL`
-- JWT：`JWT_SECRET`
-- WebSocket：与同一 HTTP 服务共用，不需要单独端口
-
-## 部署检查
-
-打开 `/api/health`，返回 `ok: true` 即表示应用和数据库连接正常。
+发布时以 Manus Space 的 checkpoint 和 Publish 结果为准。Preview 可访问不代表正式发布已经完成；只有 Dashboard 或 publish 返回永久 URL 后，才可对外发送正式访问地址。
