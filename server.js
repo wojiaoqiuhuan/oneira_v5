@@ -82,6 +82,44 @@ app.post('/api/goals', auth(['ops', 'admin']), async (req, res) => { const { sto
 app.get('/api/tasks', auth(), async (req, res) => { const store = req.user.role === 'store' ? req.user.storeId : req.query.storeId; const month = req.query.month || new Date().toISOString().slice(0, 7); const params = [month]; let where = "DATE_FORMAT(t.task_date,'%Y-%m')=?"; if (store) { where += ' AND t.store_id=?'; params.push(store); } res.json(await q(`SELECT t.*,s.name AS store_name FROM tasks t JOIN stores s ON s.id=t.store_id WHERE ${where} ORDER BY t.task_date`, params)); });
 app.patch('/api/tasks/:id', auth(['ops', 'admin']), async (req, res) => { const { targetValue, title } = req.body; if (targetValue !== undefined && Number(targetValue) < 0) return res.status(400).json({ error: '目标不能为负数' }); await execSql('UPDATE tasks SET target_value=COALESCE(?,target_value),title=COALESCE(?,title) WHERE id=?', [targetValue === undefined ? null : Number(targetValue), title || null, req.params.id]); await log(req, 'update', 'tasks', req.params.id, req.body); changed(); res.json((await q('SELECT * FROM tasks WHERE id=?', [req.params.id]))[0]); });
 
+app.get('/api/analytics', auth(['ops', 'admin']), async (req, res) => {
+  const now = new Date();
+  const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+  const to = validDate(req.query.to) ? req.query.to : now.toISOString().slice(0, 10);
+  const from = validDate(req.query.from) ? req.query.from : `${to.slice(0, 7)}-01`;
+  if (from > to) return res.status(400).json({ error: '开始日期不能晚于结束日期' });
+  const params = [from, to];
+  let filter = 'WHERE r.report_date BETWEEN ? AND ?';
+  if (req.query.storeId && req.query.storeId !== 'all') { filter += ' AND r.store_id=?'; params.push(Number(req.query.storeId)); }
+  const metric = req.query.metric || 'revenue';
+  const byStore = await q(`SELECT r.store_id,s.name AS store_name,
+    COUNT(*) AS report_days,
+    COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.revenue')) AS DECIMAL(14,2))),0) AS revenue,
+    COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.orders')) AS DECIMAL(14,2))),0) AS orders,
+    COALESCE(AVG(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.wasteRate')) AS DECIMAL(14,2))),0) AS waste_rate,
+    COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.members')) AS DECIMAL(14,2))),0) AS members
+    FROM daily_reports r JOIN stores s ON s.id=r.store_id ${filter}
+    GROUP BY r.store_id,s.name ORDER BY ${metric === 'orders' ? 'orders' : metric === 'wasteRate' ? 'waste_rate' : metric === 'members' ? 'members' : 'revenue'} DESC`, params);
+  const byDay = await q(`SELECT DATE_FORMAT(r.report_date,'%Y-%m-%d') AS day,
+    COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.revenue')) AS DECIMAL(14,2))),0) AS revenue,
+    COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.orders')) AS DECIMAL(14,2))),0) AS orders,
+    COALESCE(AVG(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.wasteRate')) AS DECIMAL(14,2))),0) AS waste_rate,
+    COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.members')) AS DECIMAL(14,2))),0) AS members
+    FROM daily_reports r ${filter} GROUP BY r.report_date ORDER BY r.report_date`, params);
+  const totals = byStore.reduce((acc, row) => ({
+    revenue: acc.revenue + Number(row.revenue || 0), orders: acc.orders + Number(row.orders || 0),
+    members: acc.members + Number(row.members || 0), reportDays: acc.reportDays + Number(row.report_days || 0),
+    wasteRateSum: acc.wasteRateSum + Number(row.waste_rate || 0)
+  }), { revenue: 0, orders: 0, members: 0, reportDays: 0, wasteRateSum: 0 });
+  const result = {
+    from, to, metric,
+    totals: { revenue: totals.revenue, orders: totals.orders, members: totals.members, reportDays: totals.reportDays, wasteRate: byStore.length ? totals.wasteRateSum / byStore.length : 0, avgOrderValue: totals.orders ? totals.revenue / totals.orders : 0 },
+    byStore: byStore.map(row => ({ storeId: row.store_id, storeName: row.store_name, reportDays: Number(row.report_days || 0), revenue: Number(row.revenue || 0), orders: Number(row.orders || 0), wasteRate: Number(row.waste_rate || 0), members: Number(row.members || 0), avgOrderValue: Number(row.orders || 0) ? Number(row.revenue || 0) / Number(row.orders || 0) : 0 })),
+    byDay: byDay.map(row => ({ day: row.day, revenue: Number(row.revenue || 0), orders: Number(row.orders || 0), wasteRate: Number(row.waste_rate || 0), members: Number(row.members || 0), avgOrderValue: Number(row.orders || 0) ? Number(row.revenue || 0) / Number(row.orders || 0) : 0 }))
+  };
+  res.json(result);
+});
+
 app.get('/api/issues', auth(), async (req, res) => { const params = []; let where = ''; if (req.user.role === 'store') { where = 'WHERE i.store_id=?'; params.push(req.user.storeId); } res.json(await q(`SELECT i.*,s.name AS store_name FROM issues i LEFT JOIN stores s ON s.id=i.store_id ${where} ORDER BY i.created_at DESC LIMIT 300`, params)); });
 app.post('/api/issues', auth(['store']), async (req, res) => { const { type = '问题', content = '' } = req.body; if (!content.trim()) return res.status(400).json({ error: '请输入内容' }); const r = await execSql('INSERT INTO issues(store_id,submitter_name,type,content) VALUES(?,?,?,?)', [req.user.storeId, req.user.name, type, content]); await log(req, 'create', 'issues', r.insertId); changed(); res.json((await q('SELECT * FROM issues WHERE id=?', [r.insertId]))[0]); });
 app.patch('/api/issues/:id', auth(['ops', 'admin']), async (req, res) => { await execSql("UPDATE issues SET status='resolved',handler_id=?,handled_at=NOW(),handling_note=? WHERE id=?", [req.user.id, req.body.note || '', req.params.id]); await log(req, 'resolve', 'issues', req.params.id, { note: req.body.note || '' }); changed(); res.json((await q('SELECT * FROM issues WHERE id=?', [req.params.id]))[0]); });
