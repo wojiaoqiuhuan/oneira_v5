@@ -53,6 +53,17 @@ ONEIRA V5.2 是部署在 Manus Space 的生产版连锁烘焙运营 Web App。�
 
 系统只把当前角色权限范围内的日报发送给 AI。API Key 只在服务端使用，不返回到浏览器页面。请使用具备数据保护能力的供应商，并根据企业合规要求决定是否启用。
 
+### 推荐供应商预设
+
+管理员可以在配置弹窗中直接选择：
+
+| 供应商 | Endpoint | 模型填写 |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com` | `deepseek-chat` 或控制台可用模型 |
+| 豆包 / 火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` | 方舟控制台中的模型 ID |
+
+两者均使用 OpenAI 兼容 Chat Completions 格式。需要先在对应供应商控制台申请 API Key 并开通模型。
+
 ## Manus Space 发布方式
 
 本项目按 Manus Space 托管方式配置：`server=true`、`database=true`。数据库连接由运行时 `DATABASE_URL` 注入，服务由根目录 `Dockerfile` 启动，健康检查为 `/api/health`。
