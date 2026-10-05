@@ -1,0 +1,37 @@
+CREATE TABLE IF NOT EXISTS period_reviews (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  store_id INT NOT NULL,
+  author_id INT NULL,
+  author_role VARCHAR(20) NOT NULL,
+  period_type VARCHAR(20) NOT NULL,
+  period_key VARCHAR(20) NOT NULL,
+  title VARCHAR(160) NOT NULL DEFAULT '',
+  content TEXT NOT NULL,
+  highlights TEXT NULL,
+  blockers TEXT NULL,
+  next_actions TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_reviews_store FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE,
+  CONSTRAINT fk_reviews_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_review_period_author (store_id, period_type, period_key, author_id),
+  KEY idx_reviews_period (period_type, period_key)
+);
+CREATE TABLE IF NOT EXISTS calendar_annotations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  store_id INT NOT NULL,
+  annotation_date DATE NOT NULL,
+  author_id INT NULL,
+  author_name VARCHAR(120) NOT NULL DEFAULT '',
+  annotation_type VARCHAR(20) NOT NULL DEFAULT 'note',
+  title VARCHAR(160) NOT NULL DEFAULT '',
+  content TEXT NOT NULL,
+  reminder_at DATETIME NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_annotations_store FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE,
+  CONSTRAINT fk_annotations_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL,
+  KEY idx_annotations_store_date (store_id, annotation_date),
+  KEY idx_annotations_date (annotation_date)
+);

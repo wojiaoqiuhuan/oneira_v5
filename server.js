@@ -58,6 +58,12 @@ async function migrateAndSeed() {
   if (!Number(reportNameColumn.count)) await execSql('ALTER TABLE daily_reports ADD COLUMN submitted_by_name VARCHAR(120) NULL AFTER submitted_by');
   if (!(await q("SELECT id FROM users WHERE name='运营' AND role='ops' LIMIT 1")).length) await execSql("INSERT INTO users(name,role,password_hash) VALUES('运营','ops',?)", [hash]);
   if (!(await q("SELECT id FROM users WHERE name='管理员' AND role='admin' LIMIT 1")).length) await execSql("INSERT INTO users(name,role,password_hash) VALUES('管理员','admin',?)", [hash]);
+  const [[reviewMigration]] = await pool.query('SELECT id FROM schema_migrations WHERE id=?', ['002_reviews_annotations']);
+  if (!reviewMigration) {
+    const sql = await (await import('fs/promises')).readFile(path.join(__dirname, 'db/migrations/002_reviews_annotations.sql'), 'utf8');
+    for (const statement of sql.split(';').map(x => x.trim()).filter(Boolean)) await execSql(statement);
+    await execSql('INSERT INTO schema_migrations(id) VALUES(?)', ['002_reviews_annotations']);
+  }
   if (!Number((await q('SELECT COUNT(*) AS count FROM report_fields'))[0].count)) await execSql("INSERT INTO report_fields(label,`key`,field_type,unit,required,sort_order) VALUES ('营业额','revenue','number','元',1,1),('客单量','orders','number','单',1,2),('损耗率','wasteRate','number','%',1,3),('会员新增','members','number','人',0,4)");
 }
 
@@ -125,6 +131,34 @@ app.get('/api/analytics', auth(['ops', 'admin']), async (req, res) => {
   res.json(result);
 });
 
+app.get('/api/reviews', auth(), async (req, res) => {
+  const params = []; let where = '1=1';
+  if (req.user.role === 'store') { where += ' AND r.store_id=?'; params.push(req.user.storeId); }
+  else if (req.query.storeId && req.query.storeId !== 'all') { where += ' AND r.store_id=?'; params.push(Number(req.query.storeId)); }
+  if (req.query.periodType) { where += ' AND r.period_type=?'; params.push(req.query.periodType); }
+  if (req.query.periodKey) { where += ' AND r.period_key=?'; params.push(req.query.periodKey); }
+  res.json(await q(`SELECT r.*,s.name AS store_name,u.name AS author_user_name FROM period_reviews r JOIN stores s ON s.id=r.store_id LEFT JOIN users u ON u.id=r.author_id WHERE ${where} ORDER BY r.period_key DESC,r.updated_at DESC LIMIT 300`, params));
+});
+app.post('/api/reviews', auth(['store','ops','admin']), async (req, res) => {
+  const storeId = req.user.role === 'store' ? req.user.storeId : Number(req.body.storeId);
+  const { periodType, periodKey, title='', content='', highlights='', blockers='', nextActions='' } = req.body;
+  if (!storeId || !['week','month'].includes(periodType) || !periodKey || !String(content).trim()) return res.status(400).json({ error: '门店、周期和复盘内容必填' });
+  const existing = await q('SELECT id FROM period_reviews WHERE store_id=? AND period_type=? AND period_key=? AND author_id=? LIMIT 1', [storeId, periodType, periodKey, req.user.id || null]);
+  let id;
+  if (existing.length) { id=existing[0].id; await execSql('UPDATE period_reviews SET title=?,content=?,highlights=?,blockers=?,next_actions=?,author_role=? WHERE id=?', [title,content,highlights,blockers,nextActions,req.user.role,id]); }
+  else { id=(await execSql('INSERT INTO period_reviews(store_id,author_id,author_role,period_type,period_key,title,content,highlights,blockers,next_actions) VALUES(?,?,?,?,?,?,?,?,?,?)', [storeId,req.user.id||null,req.user.role,periodType,periodKey,title,content,highlights,blockers,nextActions])).insertId; }
+  await log(req, existing.length ? 'update' : 'create', 'period_reviews', id, { storeId, periodType, periodKey }); changed(); res.json((await q('SELECT r.*,s.name AS store_name FROM period_reviews r JOIN stores s ON s.id=r.store_id WHERE r.id=?',[id]))[0]);
+});
+app.delete('/api/reviews/:id', auth(['ops','admin','store']), async (req,res) => { const rows=await q('SELECT * FROM period_reviews WHERE id=?',[req.params.id]); if(!rows.length)return res.status(404).json({error:'复盘不存在'}); if(req.user.role==='store'&&(rows[0].store_id!==req.user.storeId||rows[0].author_id!==req.user.id))return res.status(403).json({error:'无权限'}); await execSql('DELETE FROM period_reviews WHERE id=?',[req.params.id]); await log(req,'delete','period_reviews',req.params.id); changed(); res.json({ok:true}); });
+app.get('/api/annotations', auth(), async (req,res) => {
+  const params=[]; let where='1=1';
+  if(req.user.role==='store'){where+=' AND a.store_id=?';params.push(req.user.storeId)} else if(req.query.storeId&&req.query.storeId!=='all'){where+=' AND a.store_id=?';params.push(Number(req.query.storeId))}
+  if(req.query.month){where+=" AND DATE_FORMAT(a.annotation_date,'%Y-%m')=?";params.push(req.query.month)}
+  res.json(await q(`SELECT a.*,s.name AS store_name FROM calendar_annotations a JOIN stores s ON s.id=a.store_id WHERE ${where} ORDER BY a.annotation_date DESC,a.created_at DESC LIMIT 500`,params));
+});
+app.post('/api/annotations', auth(['store','ops','admin']), async (req,res)=>{ const storeId=req.user.role==='store'?req.user.storeId:Number(req.body.storeId); const {date,type='note',title='',content='',reminderAt=null}=req.body; if(!storeId||!date||!String(content).trim())return res.status(400).json({error:'日期和标注内容必填'}); const r=await execSql('INSERT INTO calendar_annotations(store_id,annotation_date,author_id,author_name,annotation_type,title,content,reminder_at) VALUES(?,?,?,?,?,?,?,?)',[storeId,date,req.user.id||null,req.user.name,type,title,content,reminderAt||null]); await log(req,'create','calendar_annotations',r.insertId,{storeId,date,type});changed();res.json((await q('SELECT a.*,s.name AS store_name FROM calendar_annotations a JOIN stores s ON s.id=a.store_id WHERE a.id=?',[r.insertId]))[0]); });
+app.patch('/api/annotations/:id', auth(['store','ops','admin']), async(req,res)=>{const rows=await q('SELECT * FROM calendar_annotations WHERE id=?',[req.params.id]);if(!rows.length)return res.status(404).json({error:'标注不存在'});if(req.user.role==='store'&&(rows[0].store_id!==req.user.storeId||rows[0].author_id!==req.user.id))return res.status(403).json({error:'无权限'});const {type,title='',content,reminderAt=null,status}=req.body;await execSql('UPDATE calendar_annotations SET annotation_type=COALESCE(?,annotation_type),title=COALESCE(?,title),content=COALESCE(?,content),reminder_at=?,status=COALESCE(?,status) WHERE id=?',[type||null,title,content||null,reminderAt||null,status||null,req.params.id]);await log(req,'update','calendar_annotations',req.params.id,req.body);changed();res.json({ok:true});});
+app.delete('/api/annotations/:id', auth(['store','ops','admin']), async(req,res)=>{const rows=await q('SELECT * FROM calendar_annotations WHERE id=?',[req.params.id]);if(!rows.length)return res.status(404).json({error:'标注不存在'});if(req.user.role==='store'&&(rows[0].store_id!==req.user.storeId||rows[0].author_id!==req.user.id))return res.status(403).json({error:'无权限'});await execSql('DELETE FROM calendar_annotations WHERE id=?',[req.params.id]);await log(req,'delete','calendar_annotations',req.params.id);changed();res.json({ok:true});});
 app.get('/api/issues', auth(), async (req, res) => { const params = []; let where = ''; if (req.user.role === 'store') { where = 'WHERE i.store_id=?'; params.push(req.user.storeId); } res.json(await q(`SELECT i.*,s.name AS store_name FROM issues i LEFT JOIN stores s ON s.id=i.store_id ${where} ORDER BY i.created_at DESC LIMIT 300`, params)); });
 app.post('/api/issues', auth(['store']), async (req, res) => { const { type = '问题', content = '' } = req.body; if (!content.trim()) return res.status(400).json({ error: '请输入内容' }); const r = await execSql('INSERT INTO issues(store_id,submitter_name,type,content) VALUES(?,?,?,?)', [req.user.storeId, req.user.name, type, content]); await log(req, 'create', 'issues', r.insertId); changed(); res.json((await q('SELECT * FROM issues WHERE id=?', [r.insertId]))[0]); });
 app.patch('/api/issues/:id', auth(['ops', 'admin']), async (req, res) => { await execSql("UPDATE issues SET status='resolved',handler_id=?,handled_at=NOW(),handling_note=? WHERE id=?", [req.user.id, req.body.note || '', req.params.id]); await log(req, 'resolve', 'issues', req.params.id, { note: req.body.note || '' }); changed(); res.json((await q('SELECT * FROM issues WHERE id=?', [req.params.id]))[0]); });
