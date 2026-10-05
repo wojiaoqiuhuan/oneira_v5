@@ -20,6 +20,8 @@ async function seed(conn) {
   }
   const [[manager]] = await conn.query("SELECT id FROM users WHERE name=? AND role='store' LIMIT 1", ['李店长']);
   if (!manager) await conn.query("INSERT INTO users(name,store_id,role) VALUES(?,?, 'store')", ['李店长', storeId]);
+  const [[reportNameColumn]] = await conn.query("SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='daily_reports' AND column_name='submitted_by_name'");
+  if (!Number(reportNameColumn.count)) await conn.query('ALTER TABLE daily_reports ADD COLUMN submitted_by_name VARCHAR(120) NULL AFTER submitted_by');
   const password = await bcrypt.hash('oneira2026', 10);
   const [[ops]] = await conn.query("SELECT id FROM users WHERE name='运营' AND role='ops' LIMIT 1");
   if (!ops) await conn.query("INSERT INTO users(name,role,password_hash) VALUES('运营','ops',?)", [password]);

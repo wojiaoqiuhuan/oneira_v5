@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS daily_reports (
   store_id INT NOT NULL,
   report_date DATE NOT NULL,
   submitted_by INT NULL,
+  submitted_by_name VARCHAR(120) NULL,
   payload JSON NOT NULL,
   version INT NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
