@@ -54,6 +54,8 @@ async function main() {
     if (!done004) { const sql = await fs.readFile(path.resolve('db/migrations/004_ordering_system.sql'), 'utf8'); for (const statement of sql.split(';').map(x => x.trim()).filter(Boolean)) await conn.query(statement); await conn.query('INSERT INTO schema_migrations(id) VALUES(?)', ['004_ordering_system']); }
     const [[done005]] = await conn.query('SELECT id FROM schema_migrations WHERE id=?', ['005_received_goals']);
     if (!done005) { const sql = await fs.readFile(path.resolve('db/migrations/005_received_goals.sql'), 'utf8'); for (const statement of sql.split(';').map(x => x.trim()).filter(Boolean)) await conn.query(statement); await conn.query('INSERT INTO schema_migrations(id) VALUES(?)', ['005_received_goals']); }
+    const [[done006]] = await conn.query('SELECT id FROM schema_migrations WHERE id=?', ['006_audit_retention']);
+    if (!done006) { const sql = await fs.readFile(path.resolve('db/migrations/006_audit_retention.sql'), 'utf8'); for (const statement of sql.split(';').map(x => x.trim()).filter(Boolean)) { try { await conn.query(statement); } catch (error) { if (!/Duplicate key name/i.test(error.message)) throw error; } } await conn.query('INSERT INTO schema_migrations(id) VALUES(?)', ['006_audit_retention']); }
     await seed(conn);
     console.log('ONEIRA database ready');
   } finally {
