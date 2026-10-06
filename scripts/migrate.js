@@ -46,6 +46,8 @@ async function main() {
       }
       await conn.query('INSERT INTO schema_migrations(id) VALUES(?)', [migrationId]);
     }
+    const [[done002]] = await conn.query('SELECT id FROM schema_migrations WHERE id=?', ['002_reviews_annotations']);
+    if (!done002) { const sql = await fs.readFile(path.resolve('db/migrations/002_reviews_annotations.sql'), 'utf8'); for (const statement of sql.split(';').map(x => x.trim()).filter(Boolean)) await conn.query(statement); await conn.query('INSERT INTO schema_migrations(id) VALUES(?)', ['002_reviews_annotations']); }
     const [[done003]] = await conn.query('SELECT id FROM schema_migrations WHERE id=?', ['003_ranking_ai']);
     if (!done003) { const sql = await fs.readFile(path.resolve('db/migrations/003_ranking_ai.sql'), 'utf8'); for (const statement of sql.split(';').map(x => x.trim()).filter(Boolean)) await conn.query(statement); await conn.query('INSERT INTO schema_migrations(id) VALUES(?)', ['003_ranking_ai']); }
     const [[done004]] = await conn.query('SELECT id FROM schema_migrations WHERE id=?', ['004_ordering_system']);
