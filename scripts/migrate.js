@@ -48,6 +48,8 @@ async function main() {
     }
     const [[done003]] = await conn.query('SELECT id FROM schema_migrations WHERE id=?', ['003_ranking_ai']);
     if (!done003) { const sql = await fs.readFile(path.resolve('db/migrations/003_ranking_ai.sql'), 'utf8'); for (const statement of sql.split(';').map(x => x.trim()).filter(Boolean)) await conn.query(statement); await conn.query('INSERT INTO schema_migrations(id) VALUES(?)', ['003_ranking_ai']); }
+    const [[done004]] = await conn.query('SELECT id FROM schema_migrations WHERE id=?', ['004_ordering_system']);
+    if (!done004) { const sql = await fs.readFile(path.resolve('db/migrations/004_ordering_system.sql'), 'utf8'); for (const statement of sql.split(';').map(x => x.trim()).filter(Boolean)) await conn.query(statement); await conn.query('INSERT INTO schema_migrations(id) VALUES(?)', ['004_ordering_system']); }
     await seed(conn);
     console.log('ONEIRA database ready');
   } finally {
