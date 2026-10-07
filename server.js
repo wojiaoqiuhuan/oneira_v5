@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import { Server as SocketServer } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import XLSX from 'xlsx';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -17,7 +18,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new SocketServer(server, { cors: { origin: true, credentials: true } });
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '4mb' }));
+app.use(express.json({ limit: '12mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api', (req,res,next) => { res.set('Cache-Control','no-store'); next(); });
 
@@ -256,14 +257,198 @@ app.patch('/api/ordering/categories/:id', auth(['store','ops','admin']), async (
 app.delete('/api/ordering/categories/:id', auth(['store','ops','admin']), async (req,res) => { const rows=await q('SELECT * FROM ordering_categories WHERE id=?',[req.params.id]); if(!rows.length)return res.status(404).json({error:'分类不存在'}); if(req.user.role==='store'&&Number(rows[0].store_id)!==Number(req.user.storeId))return res.status(403).json({error:'只能管理本门店分类'}); const used=(await q('SELECT COUNT(*) AS count FROM ordering_products WHERE category_id=? AND enabled=1',[req.params.id]))[0].count; if(Number(used))return res.status(409).json({error:'该分类仍有启用产品，请先移动或停用产品'}); await execSql('UPDATE ordering_categories SET enabled=0 WHERE id=?',[req.params.id]); await log(req,'archive','ordering_categories',req.params.id);changed();res.json({ok:true}); });
 app.post('/api/ordering/products/clone', auth(['ops','admin']), async (req,res)=>{const sourceId=Number(req.body.sourceStoreId),targetId=Number(req.body.targetStoreId);if(!sourceId||!targetId||sourceId===targetId)return res.status(400).json({error:'请选择不同的来源和目标门店'});const source=(await q("SELECT id,name FROM stores WHERE id=? AND status='active'",[sourceId]))[0];const target=(await q("SELECT id,name FROM stores WHERE id=? AND status='active'",[targetId]))[0];if(!source||!target)return res.status(404).json({error:'门店不存在或已停用'});const categories=await q('SELECT * FROM ordering_categories WHERE store_id=?',[sourceId]);const map={};for(const c of categories){const r=await execSql('INSERT INTO ordering_categories(store_id,category_code,name,sort_order,enabled) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),name=VALUES(name),sort_order=VALUES(sort_order),enabled=VALUES(enabled)',[targetId,c.category_code,c.name,c.sort_order,c.enabled]);map[c.id]=r.insertId}const products=await q('SELECT * FROM ordering_products WHERE store_id=?',[sourceId]);for(const p of products)await execSql('INSERT INTO ordering_products(store_id,category_id,sku,name,unit,unit_price,sort_order,enabled,note) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE category_id=VALUES(category_id),name=VALUES(name),unit=VALUES(unit),unit_price=VALUES(unit_price),sort_order=VALUES(sort_order),enabled=VALUES(enabled),note=VALUES(note)',[targetId,map[p.category_id]||null,p.sku,p.name,p.unit,p.unit_price,p.sort_order,p.enabled,p.note]);await log(req,'clone','ordering_products',targetId,{sourceStoreId:sourceId,productCount:products.length});changed();res.json({ok:true,source:source.name,target:target.name,count:products.length});});
 app.post('/api/ordering/products', auth(['store','ops','admin']), async (req,res) => { const store=await requireOrderStore(req,res,req.body.storeId);if(!store)return;const name=String(req.body.name||'').trim(),sku=String(req.body.sku||'').trim(),unitPrice=Number(req.body.unitPrice||0);if(!name||!sku)return res.status(400).json({error:'产品名称和 SKU 必填'});if(!Number.isFinite(unitPrice)||unitPrice<0)return res.status(400).json({error:'单价不能为负数'});const categoryId=await categoryForStore(store.id,req.body.categoryId);if(req.body.categoryId&&categoryId===null)return res.status(400).json({error:'分类不属于当前门店'});try{const r=await execSql('INSERT INTO ordering_products(store_id,category_id,sku,name,unit,unit_price,sort_order,enabled,note) VALUES(?,?,?,?,?,?,?,?,?)',[store.id,categoryId,sku,name,String(req.body.unit||'个'),unitPrice,Number(req.body.sortOrder||0),req.body.enabled!==false,String(req.body.note||'')]);await log(req,'create','ordering_products',r.insertId,{storeId:store.id,sku,name});changed();res.json((await q('SELECT p.*,c.name AS category_name FROM ordering_products p LEFT JOIN ordering_categories c ON c.id=p.category_id WHERE p.id=?',[r.insertId]))[0]);}catch(e){res.status(400).json({error:e.code==='ER_DUP_ENTRY'?'该 SKU 已存在':'产品创建失败'})}});
+app.get('/api/ordering/products/export.xlsx', authQuery(['store','ops','admin']), async (req,res) => {
+  const store = await requireOrderStore(req,res,req.query.storeId);
+  if (!store) return;
+  const rows = await q(`SELECT p.sku,p.name,c.category_code,c.name AS category_name,p.unit,p.unit_price,p.sort_order,p.enabled,p.note
+    FROM ordering_products p LEFT JOIN ordering_categories c ON c.id=p.category_id
+    WHERE p.store_id=? ORDER BY COALESCE(c.sort_order,999),p.sort_order,p.id`, [store.id]);
+  const data = rows.map(p => ({
+    'SKU': p.sku, '产品名称': p.name, '分类编码': p.category_code || '', '产品分类': p.category_name || '',
+    '单位': p.unit || '个', '单价': Number(p.unit_price || 0), '排序': Number(p.sort_order || 0),
+    '启用状态': Number(p.enabled) ? '启用' : '停用', '备注': p.note || ''
+  }));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [{wch:14},{wch:22},{wch:12},{wch:18},{wch:10},{wch:12},{wch:8},{wch:10},{wch:28}];
+  XLSX.utils.book_append_sheet(wb, ws, '产品模板');
+  const buffer = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
+  res.set('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.set('Content-Disposition', `attachment; filename=oneira-products-${store.id}.xlsx`);
+  res.send(buffer);
+});
+
+app.put('/api/ordering/products/batch', auth(['store','ops','admin']), async (req,res) => {
+  const store = await requireOrderStore(req,res,req.body.storeId);
+  if (!store) return;
+  const items = Array.isArray(req.body.items) ? req.body.items : [];
+  if (!items.length) return res.status(400).json({error:'没有需要保存的产品修改'});
+  const ids = items.map(x => Number(x.id)).filter(Number.isInteger);
+  if (ids.length !== items.length || new Set(ids).size !== ids.length) return res.status(400).json({error:'产品列表中存在重复或无效 ID'});
+  const placeholders = ids.map(() => '?').join(',');
+  const existing = await q(`SELECT * FROM ordering_products WHERE store_id=? AND id IN (${placeholders})`, [store.id, ...ids]);
+  if (existing.length !== items.length) return res.status(403).json({error:'只能修改当前门店的产品'});
+  const byId = Object.fromEntries(existing.map(x => [Number(x.id), x]));
+  const categories = await q('SELECT id FROM ordering_categories WHERE store_id=?', [store.id]);
+  const categoryIds = new Set(categories.map(x => Number(x.id)));
+  const seen = new Set();
+  const normalized = [];
+  for (const [index,item] of items.entries()) {
+    const id = Number(item.id), old = byId[id];
+    const sku = String(item.sku ?? '').trim(), name = String(item.name ?? '').trim(), unit = String(item.unit ?? '个').trim() || '个';
+    const price = Number(item.unitPrice);
+    const categoryId = item.categoryId === null || item.categoryId === '' || item.categoryId === undefined ? null : Number(item.categoryId);
+    if (!sku || !name) return res.status(400).json({error:`第 ${index + 1} 行 SKU 和产品名称必填`});
+    if (!Number.isFinite(price) || price < 0) return res.status(400).json({error:`${name} 的单价必须是非负数字`});
+    if (categoryId !== null && !categoryIds.has(categoryId)) return res.status(400).json({error:`${name} 的分类不属于当前门店`});
+    const key = sku.toLowerCase();
+    if (seen.has(key)) return res.status(400).json({error:`SKU ${sku} 在本次修改中重复`});
+    seen.add(key);
+    normalized.push({id,sku,name,unit,price,categoryId,sortOrder:item.sortOrder===undefined?old.sort_order:Number(item.sortOrder),enabled:item.enabled===undefined?!!old.enabled:!!item.enabled,note:item.note===undefined?String(old.note||''):String(item.note||'')});
+  }
+  const other = await q(`SELECT id,sku FROM ordering_products WHERE store_id=? AND id NOT IN (${placeholders})`, [store.id, ...ids]);
+  const otherSkus = new Map(other.map(x => [String(x.sku).toLowerCase(), x]));
+  for (const item of normalized) if (otherSkus.has(item.sku.toLowerCase())) return res.status(400).json({error:`SKU ${item.sku} 已被当前门店其他产品使用`});
+  try {
+    await inTransaction(async ({exec}) => {
+      for (const item of normalized) {
+        const result = await exec(`UPDATE ordering_products SET category_id=?,sku=?,name=?,unit=?,unit_price=?,sort_order=?,enabled=?,note=? WHERE id=? AND store_id=?`, [item.categoryId,item.sku,item.name,item.unit,item.price,item.sortOrder,item.enabled,item.note,item.id,store.id]);
+        if (result.affectedRows !== 1) throw Error('产品在保存期间发生变化');
+      }
+    });
+  } catch (e) { return res.status(400).json({error:e.code==='ER_DUP_ENTRY'?'SKU 已存在，未保存任何修改':'批量保存失败，未保存任何修改'}); }
+  try { await log(req,'batch_update','ordering_products',`store:${store.id}`,{storeId:store.id,count:normalized.length,ids}); } catch (e) { console.error('batch product audit log failed', e); }
+  changed();
+  res.json({ok:true,count:normalized.length,products:await q(`SELECT p.*,c.name AS category_name,c.category_code FROM ordering_products p LEFT JOIN ordering_categories c ON c.id=p.category_id WHERE p.store_id=? ORDER BY COALESCE(c.sort_order,999),p.sort_order,p.id`,[store.id])});
+});
+
+app.post('/api/ordering/products/import-xlsx', auth(['store','ops','admin']), async (req,res) => {
+  const store = await requireOrderStore(req,res,req.body.storeId);
+  if (!store) return;
+  const encoded = String(req.body.fileBase64 || '').replace(/^data:.*?;base64,/, '');
+  if (!encoded) return res.status(400).json({error:'没有收到 Excel 文件'});
+  let rows;
+  try {
+    const workbook = XLSX.read(Buffer.from(encoded,'base64'), {type:'buffer', cellDates:false});
+    const first = workbook.SheetNames[0];
+    if (!first) throw Error('Excel 没有工作表');
+    rows = XLSX.utils.sheet_to_json(workbook.Sheets[first], {defval:'', raw:false});
+  } catch (e) { return res.status(400).json({error:'Excel 无法读取，请使用 .xlsx 或 .xls 文件'}); }
+  if (!rows.length) return res.status(400).json({error:'Excel 中没有产品数据'});
+  const categories = await q('SELECT id,category_code,name FROM ordering_categories WHERE store_id=?', [store.id]);
+  const byCode = new Map(categories.map(x => [String(x.category_code||'').trim().toLowerCase(), x]));
+  const byName = new Map(categories.map(x => [String(x.name||'').trim().toLowerCase(), x]));
+  const existing = await q('SELECT * FROM ordering_products WHERE store_id=?', [store.id]);
+  const bySku = new Map(existing.map(x => [String(x.sku||'').trim().toLowerCase(), x]));
+  const seen = new Set(), valid = [], errors = [];
+  const pick = (row, names) => { for (const name of names) if (row[name] !== undefined && String(row[name]).trim() !== '') return row[name]; return ''; };
+  for (const [i,row] of rows.entries()) {
+    const line = i + 2, sku = String(pick(row,['SKU','sku','产品SKU'])).trim(), name = String(pick(row,['产品名称','产品名','name','名称'])).trim();
+    const categoryCode = String(pick(row,['分类编码','categoryCode','分类代码'])).trim();
+    const categoryName = String(pick(row,['产品分类','分类名称','categoryName'])).trim();
+    const unit = String(pick(row,['单位','unit']) || '个').trim() || '个';
+    const rawPrice = pick(row,['单价','unitPrice','价格']);
+    const price = Number(String(rawPrice).replace(/[,￥¥\s]/g,''));
+    const sortOrder = Number(pick(row,['排序','sortOrder']) || i + 1);
+    const enabledRaw = String(pick(row,['启用状态','enabled','状态'])).trim().toLowerCase();
+    const enabled = enabledRaw ? !['停用','禁用','否','0','false','disabled'].includes(enabledRaw) : true;
+    const note = String(pick(row,['备注','note']));
+    if (!sku || !name) { errors.push({line,message:'SKU 和产品名称必填'}); continue; }
+    if (!Number.isFinite(price) || price < 0) { errors.push({line,message:'单价必须是非负数字'}); continue; }
+    const key = sku.toLowerCase();
+    if (seen.has(key)) { errors.push({line,message:`SKU ${sku} 在 Excel 中重复`}); continue; }
+    seen.add(key);
+    const category = categoryCode ? byCode.get(categoryCode.toLowerCase()) : (categoryName ? byName.get(categoryName.toLowerCase()) : null);
+    if ((categoryCode || categoryName) && !category) { errors.push({line,message:`分类 ${categoryCode || categoryName} 不属于当前门店`}); continue; }
+    valid.push({sku,name,categoryId:category?.id||null,unit,unitPrice:price,sortOrder:Number.isFinite(sortOrder)?sortOrder:i+1,enabled,note,old:bySku.get(key)||null,line});
+  }
+  const duplicates = valid.filter(x => bySku.has(x.sku.toLowerCase()) && String(bySku.get(x.sku.toLowerCase()).sku).toLowerCase() !== x.sku.toLowerCase());
+  if (duplicates.length) for (const x of duplicates) errors.push({line:x.line,message:`SKU ${x.sku} 与现有产品冲突`});
+  const dedupValid = valid.filter(x => !duplicates.includes(x));
+  const compare = (x) => { const o=x.old; if(!o)return 'created'; return Number(o.category_id||0)===Number(x.categoryId||0)&&String(o.sku)===x.sku&&String(o.name)===x.name&&String(o.unit)===x.unit&&Number(o.unit_price)===Number(x.unitPrice)&&Number(o.sort_order)===Number(x.sortOrder)&&!!o.enabled===!!x.enabled&&String(o.note||'')===String(x.note||'')?'unchanged':'updated'; };
+  const counts = dedupValid.reduce((a,x)=>(a[compare(x)]++,a),{created:0,updated:0,unchanged:0});
+  if (req.body.preview !== true) {
+    if (errors.length) return res.status(400).json({error:'Excel 存在异常行，请修正后重新导入',errors,counts,validCount:dedupValid.length});
+    try {
+      await inTransaction(async ({exec}) => {
+        for (const x of dedupValid) await exec(`INSERT INTO ordering_products(store_id,category_id,sku,name,unit,unit_price,sort_order,enabled,note) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE category_id=VALUES(category_id),name=VALUES(name),unit=VALUES(unit),unit_price=VALUES(unit_price),sort_order=VALUES(sort_order),enabled=VALUES(enabled),note=VALUES(note)`,[store.id,x.categoryId,x.sku,x.name,x.unit,x.unitPrice,x.sortOrder,x.enabled,x.note]);
+        await exec('INSERT INTO ordering_imports(store_id,source_name,row_count,summary,imported_by) VALUES(?,?,?,?,?)',[store.id,String(req.body.sourceName||'Excel 产品模板'),rows.length,JSON.stringify({...counts,errorCount:errors.length,mode:'incremental'}),req.user.id||null]);
+      });
+    } catch (e) { return res.status(400).json({error:e.code==='ER_DUP_ENTRY'?'SKU 重复，未导入任何数据':'Excel 导入失败，未导入任何数据'}); }
+    try { await log(req,'import','ordering_products','xlsx',{storeId:store.id,rowCount:rows.length,...counts,errorCount:errors.length}); } catch (e) { console.error('xlsx product audit log failed', e); }
+    changed();
+  }
+  res.json({ok:true,preview:req.body.preview===true,rows:rows.length,validCount:dedupValid.length,errors,counts,storeId:store.id});
+});
+
 app.patch('/api/ordering/products/:id', auth(['store','ops','admin']), async (req,res) => {const rows=await q('SELECT * FROM ordering_products WHERE id=?',[req.params.id]);if(!rows.length)return res.status(404).json({error:'产品不存在'});if(req.user.role==='store'&&Number(rows[0].store_id)!==Number(req.user.storeId))return res.status(403).json({error:'只能管理本门店产品'});const b=req.body;const categoryId=await categoryForStore(rows[0].store_id,b.categoryId===undefined?rows[0].category_id:b.categoryId);if(b.categoryId!==undefined&&categoryId===null)return res.status(400).json({error:'分类不属于当前门店'});if(b.unitPrice!==undefined&&(Number(b.unitPrice)<0||!Number.isFinite(Number(b.unitPrice))))return res.status(400).json({error:'单价不能为负数'});await execSql('UPDATE ordering_products SET category_id=?,sku=COALESCE(?,sku),name=COALESCE(?,name),unit=COALESCE(?,unit),unit_price=COALESCE(?,unit_price),sort_order=COALESCE(?,sort_order),enabled=COALESCE(?,enabled),note=COALESCE(?,note) WHERE id=?',[categoryId,b.sku?String(b.sku).trim():null,b.name?String(b.name).trim():null,b.unit?String(b.unit):null,b.unitPrice===undefined?null:Number(b.unitPrice),b.sortOrder===undefined?null:Number(b.sortOrder),b.enabled===undefined?null:!!b.enabled,b.note===undefined?null:String(b.note),req.params.id]);await log(req,'update','ordering_products',req.params.id,b);changed();res.json((await q('SELECT p.*,c.name AS category_name FROM ordering_products p LEFT JOIN ordering_categories c ON c.id=p.category_id WHERE p.id=?',[req.params.id]))[0]);});
 app.delete('/api/ordering/products/:id', auth(['store','ops','admin']), async (req,res) => {const rows=await q('SELECT * FROM ordering_products WHERE id=?',[req.params.id]);if(!rows.length)return res.status(404).json({error:'产品不存在'});if(req.user.role==='store'&&Number(rows[0].store_id)!==Number(req.user.storeId))return res.status(403).json({error:'只能管理本门店产品'});await execSql('UPDATE ordering_products SET enabled=0 WHERE id=?',[req.params.id]);await log(req,'archive','ordering_products',req.params.id);changed();res.json({ok:true});});
-app.post('/api/ordering/products/import', auth(['store','ops','admin']), async (req,res) => {const store=await requireOrderStore(req,res,req.body.storeId);if(!store)return;const products=Array.isArray(req.body.products)?req.body.products:[];if(!products.length)return res.status(400).json({error:'没有可导入的产品'});const cats=await q('SELECT id,category_code FROM ordering_categories WHERE store_id=?',[store.id]);const byCode=Object.fromEntries(cats.map(x=>[x.category_code,x.id]));let count=0;for(const [i,p] of products.entries()){if(!p.sku||!p.name)continue;let cid=byCode[String(p.categoryCode||'QT').toUpperCase()]||null;if(p.categoryId!==undefined&&p.categoryId!==null){cid=await categoryForStore(store.id,p.categoryId);if(cid===null)continue}if(Number(p.unitPrice||0)<0)return res.status(400).json({error:'导入产品单价不能为负数'});await execSql('INSERT INTO ordering_products(store_id,category_id,sku,name,unit,unit_price,sort_order,enabled,note) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE category_id=VALUES(category_id),name=VALUES(name),unit=VALUES(unit),unit_price=VALUES(unit_price),sort_order=VALUES(sort_order),enabled=VALUES(enabled),note=VALUES(note)',[store.id,cid,String(p.sku),String(p.name),String(p.unit||'个'),Number(p.unitPrice||0),Number(p.sortOrder||i+1),p.enabled!==false,String(p.note||'')]);count++;}await execSql('INSERT INTO ordering_imports(store_id,source_name,row_count,summary,imported_by) VALUES(?,?,?,?,?)',[store.id,String(req.body.sourceName||'产品批量导入'),count,JSON.stringify({count}),req.user.id||null]);await log(req,'import','ordering_products','batch',{storeId:store.id,count});changed();res.json({ok:true,count});});
+app.post('/api/ordering/products/import', auth(['store','ops','admin']), async (req,res) => {
+  const store = await requireOrderStore(req,res,req.body.storeId); if (!store) return;
+  const products = Array.isArray(req.body.products) ? req.body.products : [];
+  if (!products.length) return res.status(400).json({error:'没有可导入的产品'});
+  const categories = await q('SELECT id,category_code FROM ordering_categories WHERE store_id=?',[store.id]);
+  const byCode = new Map(categories.map(x => [String(x.category_code||'').toLowerCase(), Number(x.id)]));
+  const categoryIds = new Set(categories.map(x => Number(x.id))), seen = new Set(), rows = [];
+  for (const [i,p] of products.entries()) {
+    const sku=String(p.sku||'').trim(), name=String(p.name||'').trim(), price=Number(p.unitPrice||0);
+    let categoryId = p.categoryId===undefined || p.categoryId===null || p.categoryId==='' ? (p.categoryCode ? byCode.get(String(p.categoryCode).trim().toLowerCase()) ?? null : null) : Number(p.categoryId);
+    if (!sku || !name) return res.status(400).json({error:`第 ${i+1} 行 SKU 和产品名称必填`});
+    if (!Number.isFinite(price) || price<0) return res.status(400).json({error:`第 ${i+1} 行单价不能为负数`});
+    if (categoryId!==null && !categoryIds.has(categoryId)) return res.status(400).json({error:`第 ${i+1} 行分类不属于当前门店`});
+    if (seen.has(sku.toLowerCase())) return res.status(400).json({error:`SKU ${sku} 在导入内容中重复`});
+    seen.add(sku.toLowerCase());
+    rows.push([store.id,categoryId,sku,name,String(p.unit||'个'),price,Number(p.sortOrder||i+1),p.enabled!==false,String(p.note||'')]);
+  }
+  try {
+    await inTransaction(async ({exec}) => {
+      for (const row of rows) await exec('INSERT INTO ordering_products(store_id,category_id,sku,name,unit,unit_price,sort_order,enabled,note) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE category_id=VALUES(category_id),name=VALUES(name),unit=VALUES(unit),unit_price=VALUES(unit_price),sort_order=VALUES(sort_order),enabled=VALUES(enabled),note=VALUES(note)',row);
+      await exec('INSERT INTO ordering_imports(store_id,source_name,row_count,summary,imported_by) VALUES(?,?,?,?,?)',[store.id,String(req.body.sourceName||'产品批量导入'),rows.length,JSON.stringify({count:rows.length,mode:'incremental'}),req.user.id||null]);
+    });
+  } catch (e) { return res.status(400).json({error:e.code==='ER_DUP_ENTRY'?'SKU 重复，未导入任何数据':'产品导入失败，未导入任何数据'}); }
+  try { await log(req,'import','ordering_products','batch',{storeId:store.id,count:rows.length}); } catch (e) { console.error('legacy product audit log failed', e); }
+  changed(); res.json({ok:true,count:rows.length});
+});
 app.get('/api/ordering/orders', auth(['store','ops','admin']), async (req,res)=>{const month=String(req.query.month||new Date().toISOString().slice(0,7));if(req.query.storeId==='all'&&req.user.role!=='store'){return res.json(await q('SELECT o.*,s.name AS store_name FROM daily_orders o JOIN stores s ON s.id=o.store_id WHERE DATE_FORMAT(o.order_date,\'%Y-%m\')=? ORDER BY o.order_date DESC',[month]))}const store=await requireOrderStore(req,res,req.query.storeId);if(!store)return;res.json(await q('SELECT o.*,s.name AS store_name FROM daily_orders o JOIN stores s ON s.id=o.store_id WHERE o.store_id=? AND DATE_FORMAT(o.order_date,\'%Y-%m\')=? ORDER BY o.order_date DESC',[store.id,month]));});
 app.get('/api/ordering/print', authQuery(['store','ops','admin']), async (req,res)=>{const store=await requireOrderStore(req,res,req.query.storeId);if(!store)return;const dates=String(req.query.dates||'').split(',').map(x=>x.trim()).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x));if(!dates.length)return res.status(400).send('请选择打印日期');const escHtml=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let sections=[];for(const date of dates){const rows=await q('SELECT o.*,s.name AS store_name FROM daily_orders o JOIN stores s ON s.id=o.store_id WHERE o.store_id=? AND o.order_date=?',[store.id,date]);if(!rows.length){sections.push(`<section class="missing"><h2>${escHtml(date)}</h2><p>当天没有报货记录</p></section>`);continue}const items=await q('SELECT * FROM daily_order_items WHERE order_id=? ORDER BY category_name,sort_order,id',[rows[0].id]);const groups={};for(const x of items)(groups[x.category_name]??=[]).push(x);const body=Object.entries(groups).map(([cat,list])=>`<h3>${escHtml(cat)}</h3><table><tr><th>SKU</th><th>产品</th><th>单位</th><th>数量</th><th>金额</th></tr>${list.map(x=>`<tr><td>${escHtml(x.sku)}</td><td>${escHtml(x.product_name)}</td><td>${escHtml(x.unit)}</td><td>${x.quantity}</td><td>¥${Number(x.amount).toFixed(2)}</td></tr>`).join('')}</table>`).join('');sections.push(`<section class="day"><h2>${escHtml(date)}</h2><p>状态：${rows[0].status==='submitted'?'已提交':'草稿'}　总数量：${rows[0].total_quantity}　报货总金额：¥${Number(rows[0].total_amount).toFixed(2)}</p>${body||'<p>当天数量为 0</p>'}</section>`)}res.type('html').send(`<!doctype html><meta charset="utf-8"><title>${escHtml(store.name)} 多日期报货单</title><style>body{font-family:Arial,'Microsoft YaHei',sans-serif;margin:28px;color:#17191d}h1{margin-bottom:4px}h2{margin:24px 0 8px;border-bottom:2px solid #7657d9;padding-bottom:5px}h3{margin:18px 0 7px;color:#5c43b6}table{width:100%;border-collapse:collapse;margin-bottom:14px}th,td{padding:8px;border:1px solid #d9d7e5;text-align:left}th{background:#ebe5ff}.day{break-after:page}.missing{padding:24px;background:#f6f4fb;border-radius:12px}@media print{button{display:none}}</style><h1>${escHtml(store.name)} · 多日期报货单</h1><p>打印日期：${dates.join('、')}</p>${sections.join('')}<button onclick="window.print()">打印</button>`)});
 app.get('/api/ordering/orders/:date/print', authQuery(['store','ops','admin']), async (req,res)=>{const store=await requireOrderStore(req,res,req.query.storeId);if(!store)return;const rows=await q('SELECT o.*,s.name AS store_name FROM daily_orders o JOIN stores s ON s.id=o.store_id WHERE o.store_id=? AND o.order_date=?',[store.id,req.params.date]);if(!rows.length)return res.status(404).send('报货单不存在');const items=await q('SELECT * FROM daily_order_items WHERE order_id=? ORDER BY category_name,sort_order,id',[rows[0].id]);const groups={};for(const x of items)(groups[x.category_name]??=[]).push(x);const escHtml=x=>String(x??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));let body=Object.entries(groups).map(([cat,list])=>`<h2>${escHtml(cat)}</h2><table><tr><th>SKU</th><th>产品</th><th>单位</th><th>数量</th><th>金额</th></tr>${list.map(x=>`<tr><td>${escHtml(x.sku)}</td><td>${escHtml(x.product_name)}</td><td>${escHtml(x.unit)}</td><td>${x.quantity}</td><td>¥${Number(x.amount).toFixed(2)}</td></tr>`).join('')}</table>`).join('');res.type('html').send(`<!doctype html><meta charset=\"utf-8\"><title>${escHtml(store.name)} ${req.params.date} 报货单</title><style>body{font-family:Arial,'Microsoft YaHei',sans-serif;margin:28px;color:#17191d}h1{margin-bottom:4px}h2{margin:24px 0 8px;border-bottom:2px solid #7657d9;padding-bottom:5px}table{width:100%;border-collapse:collapse;margin-bottom:14px}th,td{padding:8px;border:1px solid #d9d7e5;text-align:left}th{background:#ebe5ff}@media print{button{display:none}}</style><h1>${escHtml(store.name)} · ${escHtml(req.params.date)} 报货单</h1><p>状态：${rows[0].status==='submitted'?'已提交':'草稿'}　总数量：${rows[0].total_quantity}　报货总金额：¥${Number(rows[0].total_amount).toFixed(2)}</p>${body}<button onclick=\"window.print()\">打印</button>`);});
 app.get('/api/ordering/orders/:date', auth(['store','ops','admin']), async (req,res)=>{const store=await requireOrderStore(req,res,req.query.storeId);if(!store)return;const rows=await q('SELECT o.*,s.name AS store_name FROM daily_orders o JOIN stores s ON s.id=o.store_id WHERE o.store_id=? AND o.order_date=?',[store.id,req.params.date]);if(!rows.length)return res.json({order:null,items:[]});res.json({order:rows[0],items:await q('SELECT * FROM daily_order_items WHERE order_id=? ORDER BY category_name,sort_order,id',[rows[0].id])});});
-app.put('/api/ordering/orders/:date', auth(['store','ops','admin']), async (req,res)=>{const store=await requireOrderStore(req,res,req.body.storeId);if(!store)return;const date=req.params.date;const products=await q("SELECT p.*,COALESCE(c.name,'其他') AS category_name FROM ordering_products p LEFT JOIN ordering_categories c ON c.id=p.category_id WHERE p.store_id=? AND p.enabled=1",[store.id]);const incoming=Array.isArray(req.body.items)?req.body.items:[];const byId=new Map(incoming.map(x=>[Number(x.productId),Number(x.quantity||0)]));const target=Number(req.body.targetValue||0);const status=req.body.status==='submitted'?'submitted':'draft';let totalQty=0,totalAmount=0;const items=[];for(const p of products){const quantity=Number(byId.get(Number(p.id))||0);if(!Number.isFinite(quantity)||quantity<0)return res.status(400).json({error:'产品数量必须是非负数字'});const amount=quantity*Number(p.unit_price);totalQty+=quantity;totalAmount+=amount;if(quantity>0)items.push([p.id,p.sku,p.name,p.category_name,p.unit,p.unit_price,quantity,amount,p.sort_order]);}const orderId=await inTransaction(async({q:tq,exec})=>{const old=(await tq('SELECT id FROM daily_orders WHERE store_id=? AND order_date=? FOR UPDATE',[store.id,date]))[0];let id;if(old){id=old.id;await exec("UPDATE daily_orders SET target_value=?,status=?,total_quantity=?,total_amount=?,submitted_by=?,submitted_by_name=?,submitted_at=IF(?='submitted',NOW(),submitted_at) WHERE id=?",[target,status,totalQty,totalAmount,req.user.id||null,req.user.name,status,id]);await exec('DELETE FROM daily_order_items WHERE order_id=?',[id]);}else{id=(await exec("INSERT INTO daily_orders(store_id,order_date,target_value,status,total_quantity,total_amount,created_by,submitted_by,submitted_by_name,submitted_at) VALUES(?,?,?,?,?,?,?,?,?,IF(?='submitted',NOW(),NULL)",[store.id,date,target,status,totalQty,totalAmount,req.user.id||null,req.user.id||null,req.user.name,status])).insertId;}for(const item of items)await exec('INSERT INTO daily_order_items(order_id,product_id,sku,product_name,category_name,unit,unit_price,quantity,amount,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?)',[id,...item]);return {id,updated:!!old};});await log(req,orderId.updated?'update':'create','daily_orders',orderId.id,{storeId:store.id,date,status,totalQty,totalAmount});changed();res.json({order:(await q('SELECT * FROM daily_orders WHERE id=?',[orderId.id]))[0],items:await q('SELECT * FROM daily_order_items WHERE order_id=? ORDER BY category_name,sort_order,id',[orderId.id])});});
+app.put('/api/ordering/orders/:date', auth(['store','ops','admin']), async (req,res)=>{
+  const store=await requireOrderStore(req,res,req.body.storeId); if(!store)return;
+  const date=req.params.date;
+  const existingRow=(await q('SELECT * FROM daily_orders WHERE store_id=? AND order_date=?',[store.id,date]))[0]||null;
+  const existingItems=existingRow?await q('SELECT * FROM daily_order_items WHERE order_id=? ORDER BY category_name,sort_order,id',[existingRow.id]):[];
+  const oldByProduct=new Map(existingItems.map(x=>[Number(x.product_id),x]));
+  const products=await q("SELECT p.*,COALESCE(c.name,'其他') AS category_name FROM ordering_products p LEFT JOIN ordering_categories c ON c.id=p.category_id WHERE p.store_id=? AND p.enabled=1",[store.id]);
+  const incoming=Array.isArray(req.body.items)?req.body.items:[], byId=new Map(incoming.map(x=>[Number(x.productId),Number(x.quantity||0)]));
+  const target=Number(req.body.targetValue||0), status=req.body.status==='submitted'?'submitted':'draft';
+  let totalQty=0,totalAmount=0; const items=[], currentIds=new Set();
+  for(const p of products){
+    currentIds.add(Number(p.id)); const quantity=Number(byId.get(Number(p.id))||0);
+    if(!Number.isFinite(quantity)||quantity<0)return res.status(400).json({error:'产品数量必须是非负数字'});
+    if(quantity<=0)continue;
+    const old=oldByProduct.get(Number(p.id));
+    const snapshot=old||{sku:p.sku,product_name:p.name,category_name:p.category_name,unit:p.unit,unit_price:p.unit_price,sort_order:p.sort_order};
+    const unitPrice=Number(snapshot.unit_price||0), amount=quantity*unitPrice; totalQty+=quantity; totalAmount+=amount;
+    items.push([p.id,snapshot.sku,snapshot.product_name,snapshot.category_name,snapshot.unit,snapshot.unit_price,quantity,amount,snapshot.sort_order]);
+  }
+  for(const old of existingItems){
+    if(currentIds.has(Number(old.product_id))||Number(old.quantity||0)<=0)continue;
+    totalQty+=Number(old.quantity||0); totalAmount+=Number(old.amount||0);
+    items.push([old.product_id,old.sku,old.product_name,old.category_name,old.unit,old.unit_price,old.quantity,old.amount,old.sort_order]);
+  }
+  let orderId;
+  try {
+    orderId=await inTransaction(async({q:tq,exec})=>{
+      const locked=(await tq('SELECT id FROM daily_orders WHERE store_id=? AND order_date=? FOR UPDATE',[store.id,date]))[0]; let id;
+      if(locked){id=locked.id;await exec("UPDATE daily_orders SET target_value=?,status=?,total_quantity=?,total_amount=?,submitted_by=?,submitted_by_name=?,submitted_at=IF(?='submitted',NOW(),submitted_at) WHERE id=?",[target,status,totalQty,totalAmount,req.user.id||null,req.user.name,status,id]);await exec('DELETE FROM daily_order_items WHERE order_id=?',[id]);}
+      else{id=(await exec("INSERT INTO daily_orders(store_id,order_date,target_value,status,total_quantity,total_amount,created_by,submitted_by,submitted_by_name,submitted_at) VALUES(?,?,?,?,?,?,?,?,?,IF(?='submitted',NOW(),NULL))",[store.id,date,target,status,totalQty,totalAmount,req.user.id||null,req.user.id||null,req.user.name,status])).insertId;}
+      for(const item of items)await exec('INSERT INTO daily_order_items(order_id,product_id,sku,product_name,category_name,unit,unit_price,quantity,amount,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?)',[id,...item]); return {id,updated:!!locked};
+    });
+  } catch(e){return res.status(400).json({error:'报货保存失败，未保存任何修改'});}
+  try { await log(req,orderId.updated?'update':'create','daily_orders',orderId.id,{storeId:store.id,date,status,totalQty,totalAmount}); } catch(e){ console.error('order audit log failed',e); }
+  changed(); res.json({order:(await q('SELECT * FROM daily_orders WHERE id=?',[orderId.id]))[0],items:await q('SELECT * FROM daily_order_items WHERE order_id=? ORDER BY category_name,sort_order,id',[orderId.id])});
+});
 app.delete('/api/ordering/orders/:date', auth(['store','ops','admin']), async (req,res)=>{const store=await requireOrderStore(req,res,req.body?.storeId||req.query.storeId);if(!store)return;const rows=await q('SELECT id FROM daily_orders WHERE store_id=? AND order_date=?',[store.id,req.params.date]);if(!rows.length)return res.status(404).json({error:'报货单不存在'});await execSql('DELETE FROM daily_orders WHERE id=?',[rows[0].id]);await log(req,'delete','daily_orders',rows[0].id,{storeId:store.id,date:req.params.date});changed();res.json({ok:true});});
 
 app.get('/api/audit', auth(['admin']), async (req, res) => { res.set('Cache-Control', 'no-store'); const limit=Math.min(Math.max(Number(req.query.limit||5000),1),5000); res.json(await q(`SELECT a.*,u.name AS user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT ${limit}`)); });
