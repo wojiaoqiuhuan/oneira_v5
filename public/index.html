@@ -86,6 +86,14 @@ html,body{background:var(--bg);color:var(--ink)}body{background:radial-gradient(
   .topright>.chip:last-child .icon{width:15px;height:15px;margin:0}
 }
 </style>
+<style>
+/* Keep identity, refresh and logout grouped at the top-right; never center the action cluster. */
+.topright{margin-left:auto;justify-content:flex-end;flex:0 0 auto}
+@media(max-width:600px){
+  .top{grid-template-columns:auto minmax(0,1fr)}
+  .topright{justify-self:end;margin-left:auto;width:max-content;max-width:calc(100vw - 96px);flex:0 1 auto;justify-content:flex-end}
+}
+</style>
 </head>
 <body><div id="app"><div class="bootScreen"><div class="bootMark">ONEIRA</div><div class="bootSpinner"></div><p>正在连接运营工作台…</p><small>首次打开可能需要几秒同步数据</small><button class="btn light small" onclick="login()">进入登录页</button></div></div><div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="modalbox" id="modalbox"></div></div><div id="toast" class="toast"></div>
 <script>
