@@ -124,14 +124,16 @@ html,body{background:var(--bg);color:var(--ink)}body{background:radial-gradient(
   .modalbox.batchModal.categoryMode{height:auto;min-height:0;max-height:calc(100dvh - 20px)}
   .modalbox.batchModal.categoryMode>.orderConfigGrid{height:auto;flex:0 1 auto;overflow:visible}
   .modalbox.batchModal.categoryMode .orderConfigCategoriesPane.is-active{height:auto;max-height:calc(100dvh - 170px);overflow:auto!important}
-  .modalbox.batchModal .orderConfigProductsPane>.sectionTitle{flex:0 0 auto;margin-bottom:8px}
-  .modalbox.batchModal .orderConfigProductsPane .orderBatchToolbar{flex:0 0 auto;grid-template-columns:1fr 1fr;gap:7px;padding:8px;margin-bottom:7px}
+  .modalbox.batchModal:not(.categoryMode)>.orderConfigGrid{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
+  .modalbox.batchModal:not(.categoryMode) .orderConfigProductsPane.is-active{display:grid!important;grid-template-rows:auto auto auto minmax(0,1fr) auto;height:100%;min-height:0;overflow:hidden!important;flex:1 1 auto}
+  .modalbox.batchModal .orderConfigProductsPane>.sectionTitle{min-height:0;flex:0 0 auto;margin-bottom:8px}
+  .modalbox.batchModal .orderConfigProductsPane .orderBatchToolbar{min-height:0;flex:0 0 auto;grid-template-columns:1fr 1fr;gap:7px;padding:8px;margin-bottom:7px}
   .modalbox.batchModal .orderConfigProductsPane .orderBatchToolbar .batchSearch{grid-column:1/-1}
   .modalbox.batchModal .orderConfigProductsPane .orderBatchToolbar .headActions{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr}
   .modalbox.batchModal .orderConfigProductsPane .orderBatchToolbar .headActions .btn{width:100%;min-height:38px}
   .modalbox.batchModal .orderConfigProductsPane .orderBatchMeta{flex:0 0 auto;margin-bottom:5px}
-  .modalbox.batchModal .orderConfigProductsPane .orderBatchTable{flex:1;min-height:0;max-height:none;overflow:auto;padding:0 2px 8px 0;-webkit-overflow-scrolling:touch}
-  .modalbox.batchModal .orderConfigProductsPane .orderBatchFooter{flex:0 0 auto;position:sticky;bottom:0;margin:0 -14px;padding:9px 14px calc(9px + env(safe-area-inset-bottom));background:rgba(255,255,255,.97);backdrop-filter:blur(16px);box-shadow:0 -8px 20px rgba(54,38,105,.1);z-index:6}
+  .modalbox.batchModal .orderConfigProductsPane .orderBatchTable{grid-row:4;display:grid;flex:0 1 auto;min-height:0;height:auto;max-height:none;overflow-y:scroll;overflow-x:hidden;padding:0 2px 8px 0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
+  .modalbox.batchModal .orderConfigProductsPane .orderBatchFooter{grid-row:5;flex:0 0 auto;position:sticky;bottom:0;margin:0 -14px;padding:9px 14px calc(9px + env(safe-area-inset-bottom));background:rgba(255,255,255,.97);backdrop-filter:blur(16px);box-shadow:0 -8px 20px rgba(54,38,105,.1);z-index:6}
   .modalbox.batchModal .orderConfigProductsPane .orderBatchFooter .orderBatchHint{display:none}
   .modalbox.batchModal .orderConfigProductsPane .orderBatchFooter .headActions{display:grid;grid-template-columns:1fr 1.25fr;width:100%;gap:8px}
   .modalbox.batchModal .orderConfigProductsPane .orderBatchFooter .btn{min-height:42px}
