@@ -157,6 +157,14 @@ body.modal-open{overflow:hidden;overscroll-behavior:none}
 @media(max-width:760px){
   .modalbox.batchModal .orderBatchTable{touch-action:pan-y;overscroll-behavior:contain}
 }
+</style><style>
+/* Catalog editor invariant: the product pane is a fixed-height grid and the table is its only vertical scroller at every breakpoint. */
+.modalbox.batchModal:not(.categoryMode) .orderConfigProductsPane.is-active{display:grid!important;grid-template-rows:auto auto auto minmax(0,1fr) auto;min-height:0;overflow:hidden!important}
+.modalbox.batchModal:not(.categoryMode) .orderConfigProductsPane.is-active .orderBatchTable{grid-row:4;min-height:0;height:auto;max-height:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
+.modalbox.batchModal:not(.categoryMode) .orderConfigProductsPane.is-active .orderBatchFooter{grid-row:5;min-height:0}
+@media(max-width:760px){
+  .modalbox.batchModal:not(.categoryMode) .orderConfigProductsPane.is-active .orderBatchTable{overflow-y:scroll}
+}
 </style></head>
 <body><div id="app"><div class="bootScreen"><div class="bootMark">ONEIRA</div><div class="bootSpinner"></div><p>正在连接运营工作台…</p><small>首次打开可能需要几秒同步数据</small><button class="btn light small" onclick="login()">进入登录页</button></div></div><div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="modalbox" id="modalbox"></div></div><div id="toast" class="toast"></div>
 <script>
