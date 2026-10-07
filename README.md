@@ -1,120 +1,156 @@
 # ONEIRA 梦面包｜连锁烘焙运营工作台
 
-ONEIRA V5.2 是部署在 Manus Space 的生产版连锁烘焙运营 Web App。系统手机优先，支持店长、运营、管理员三种角色；数据使用 Manus Space 托管的 MySQL 兼容数据库，不使用 Supabase、Render、Railway，也不把浏览器 `localStorage` 当作业务数据库。
+> 面向连锁烘焙门店的手机优先运营工作台：日报、目标、报货、经营分析、反馈和审计在同一条数据链路内闭环。
 
-## 最新更新
+- **正式地址**：<https://oneira-4v8y8pei.manus.space>
+- **GitHub**：<https://github.com/wojiaoqiuhuan/oneira_v5>
+- **运行方式**：Manus Space Server + Managed MySQL
+- **当前版本**：V5.2.0（持续增量更新）
 
-详见 [CHANGELOG.md](./CHANGELOG.md)。最新版本已包含：
+## 项目定位
 
-- 门店汇总明细直接显示日报提交日期、提交时间和提交人。
-- 日报必填字段增加前端提示与后端数据库级兜底，缺少必填项时禁止提交。
-- 管理员可配置排行榜指标、指标名称、单位和统计方式（合计/平均）。
-- 排行支持营业额、实收金额、订单量、试吃金额、报损金额、试吃占比、报损占比、会员新增、实体卡余量等日报数据。
-- 新增 AI 经营分析，可按角色权限范围分析数据、复制结论和导出 CSV。
-- 管理员可配置兼容 OpenAI Chat Completions 的 AI Endpoint、模型、API Key 和启用状态。
-- 店长也可以查看自己门店权限范围内的经营分析和导出数据。
+ONEIRA 不是传统 ERP 后台，而是面向手机端工作的轻量化经营控制室。店长负责填报与报货，运营负责看经营状态和目标完成情况，管理员负责配置系统规则；所有角色通过同一套后端权限、数据库事务和实时同步保持数据一致。
 
-## 已实现能力
+视觉采用紫罗兰新拟物方向，结合 Apple / Linear / Vercel Dashboard 的克制信息层级：卡片化 KPI、毛玻璃、细边框、微渐变、底部导航和移动端优先交互。
 
-- **店长**：只能查看自己的门店，填写今日日报，查看历史日报、目标月历、反馈、周月复盘和本店经营分析。
-- **运营**：查看全部门店、日报状态、目标完成情况、反馈、周月复盘、经营分析、排行和 CSV 导出。
-- **管理员**：管理门店、店长员工、运营/管理员账号口令、日报模板、日报记录、排行榜、AI 配置和审计日志。
-- **日报**：动态字段、必填规则、一店一天一份、重复提交覆盖、提交人记录、提交时间记录和版本号。
-- **自动计算**：实收金额、平台收入、试吃占比、报损占比和目标完成率自动计算。
-- **目标**：月目标支持按天平均、周末权重、自定义每日目标，并自动回填日报实际营业额。
-- **反馈中心**：店长、运营、管理员均可新增、查看、编辑、删除；运营和管理员可更新处理状态及备注。
-- **排行与分析**：管理员可维护排行指标；各角色只看到自己权限范围内的数据。
-- **AI 分析**：使用兼容 OpenAI Chat Completions 的接口，对当前角色可访问日报进行趋势、异常、门店差异和行动建议分析。
-- **权限**：后端 API 强制校验角色和门店范围，不依赖前端隐藏按钮。
-- **同步**：Socket.IO 发送数据变更通知，所有业务数据来自同一个数据库。
-- **发布**：Docker 生产入口，监听 `PORT`，健康检查 `/api/health`。
+## 核心功能
 
-## 默认登录信息
+### 角色与权限
 
-首次启动会幂等初始化以下账号和门店：
+| 角色 | 权限范围 |
+|---|---|
+| 店长 | 仅查看自己的门店；填写、补交、编辑、删除、复制历史日报；查看目标日历、报货、反馈、周复盘/月总结和本店分析 |
+| 运营 | 查看权限范围内全部门店；查看日报提交状态、目标完成度、经营排行、趋势、反馈、周复盘/月总结和 CSV 导出 |
+| 管理员 | 管理门店、店长、运营/管理员账号、日报模板、日报记录、排行指标、AI 配置、审计日志和门店产品模板 |
 
-| 角色 | 账号/门店 | 密码或口令 |
-|---|---|---|
-| 店长 | 门店：咸阳店；姓名：李店长 | `BAKE2024` |
-| 运营 | `运营` | `oneira2026` |
-| 管理员 | `管理员` | `oneira2026` |
+后端 API 强制执行 JWT、角色和门店范围校验，前端隐藏按钮不作为安全边界。
 
-上线后请立即在 **系统管理 → 运营与管理员账号** 修改默认管理员和运营口令，并在 **门店与店长** 中维护门店口令。
+### 营业日报
 
-## AI 配置
+- 支持按日期填报、历史补交、编辑、删除、复制历史日报。
+- 支持整段文字粘贴导入，也支持复制标准模板。
+- 管理员可动态新增、编辑、隐藏字段，设置单位、数字/文字类型和必填规则。
+- 每个门店每天一份日报；重复提交会覆盖同日记录，并保留提交人、提交时间和版本信息。
+- 近期日报默认显示最近 7 条摘要；历史日报按 15 条分页；手机端自动卡片化，完整内容通过详情弹窗查看。
 
-管理员进入 **系统管理 → AI 分析配置**：
+### 自动计算与目标
 
-1. 填写兼容 OpenAI Chat Completions 的 Endpoint，例如 `https://api.example.com/v1`。
-2. 填写模型名称，例如 `gpt-4o-mini` 或供应商提供的兼容模型名。
-3. 填写 API Key；已配置的 Key 可留空保持不变。
-4. 勾选 **启用 AI 分析** 并保存。
-5. 运营分析页或店长本店分析页点击 **AI 分析**。
+所有月目标、日目标和完成率使用 **实收金额** 作为核心指标：
 
-系统只把当前角色权限范围内的日报发送给 AI。API Key 只在服务端使用，不返回到浏览器页面。请使用具备数据保护能力的供应商，并根据企业合规要求决定是否启用。
+- 实收金额 = 总营业额 − 优惠/折扣券合计
+- 平台收入 = 美团团购 + 美团外卖 + 抖音团购 + 淘宝闪购
+- 试吃占比 = 试吃金额 ÷（试吃金额 + 报损金额 + 总营业额）
+- 报损占比 = 报损金额 ÷（试吃金额 + 报损金额 + 总营业额）
+- 完成率 = 实收金额 ÷ 当日目标金额
 
-### 推荐供应商预设
+目标支持月目标、按天平均、周末权重和店长自定义每日拆分。日历支持点击查看当天营业额、实收、目标、完成率、报货金额、标注、评论和提醒。
 
-管理员可以在配置弹窗中直接选择：
+### 报货管理
 
-| 供应商 | Endpoint | 模型填写 |
-|---|---|---|
-| DeepSeek | `https://api.deepseek.com` | `deepseek-chat` 或控制台可用模型 |
-| 豆包 / 火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` | 方舟控制台中的模型 ID |
+- 独立报货模块，店长可按日期或整周填写每个 SKU 数量。
+- 按产品分类分组展示并汇总，显示报货金额与预估营业额比例。
+- 支持跨月份选择日期、选择性复制历史报货、打印自选日期和 CSV/Excel 导入导出。
+- 产品与价格按门店独立维护，支持门店模板复制/克隆；不会把一家店的品名、分类或价格强行覆盖到其他门店。
+- 批量编辑支持分类筛选、搜索、一次性保存多项修改、停用产品和 Excel 差异预览。
+- 历史报货支持查看、编辑、复制和删除，保留金额快照便于追溯。
 
-两者均使用 OpenAI 兼容 Chat Completions 格式。需要先在对应供应商控制台申请 API Key 并开通模型。
+### 经营分析、排行与 AI
 
-## Manus Space 发布方式
+- 按日期、门店和指标查看趋势与排行。
+- 支持营业额、实收、订单量、试吃金额、报损金额、试吃占比、报损占比、会员新增等指标。
+- 管理员可修改排行名称、单位和统计方式（合计/平均）。
+- 门店汇总明细按门店折叠，展开后查看日期、提交时间、提交人、实收等明细。
+- AI 分析支持 OpenAI Chat Completions 兼容接口，可配置 DeepSeek 或豆包/火山方舟；分析任务在后台运行，结果支持一键复制。
+- API Key 只存储和使用于服务端，不返回浏览器；AI 只接收当前角色权限范围内的数据。
 
-本项目按 Manus Space 托管方式配置：`server=true`、`database=true`。数据库连接由运行时 `DATABASE_URL` 注入，服务由根目录 `Dockerfile` 启动，健康检查为 `/api/health`。
+### 反馈、复盘与审计
 
-启动时会执行幂等迁移并通过 `schema_migrations` 记录：
+- 店长、运营、管理员均可对反馈进行增删改查。
+- 运营和管理员可更新反馈处理状态、处理备注和处理人。
+- 店长和运营支持周复盘、月总结，日历支持特殊情况标注、评论和提醒。
+- 审计日志记录操作者、时间、对象和动作；自动保留最近 5000 条，支持搜索、批量删除和按日期清理。
 
-- `001_initial`：基础门店、用户、日报、目标、反馈和审计表。
-- `002_reviews_annotations`：周月复盘和日历标注。
-- `003_ranking_ai`：排行指标和 AI 配置。
+## 技术架构
 
-开发 Preview 和正式发布使用同一个项目数据库，请不要在生产数据上反复执行破坏性 DDL。
+- **Backend**：Node.js、Express 5、Socket.IO
+- **Database**：Manus Space Managed MySQL，`mysql2`
+- **Auth**：JWT + bcryptjs，支持 Header / 查询参数令牌
+- **Frontend**：单页 Web App，原生 HTML/CSS/JavaScript，移动端优先
+- **Import/Export**：`xlsx`，支持 Excel 批量导入、差异预览和导出
+- **Deployment**：Docker，监听 `PORT`（默认 3000）
+- **Health check**：`GET /api/health`
+- **Route manifest**：`public/manus-routes.json`
 
-### 在 Manus Space 中发布
+项目不使用 Supabase、Render、Railway，也不把浏览器 `localStorage` 当作业务数据库。
 
-1. 打开当前项目的 Manus Space Dashboard。
-2. 确认项目已启用 Server 和 Database。
-3. 等待 Preview 显示 ONEIRA 登录页，并访问 `/api/health` 确认返回 `ok: true`。
-4. 点击 **Publish** 发布当前 checkpoint。
-5. 使用默认账号完成登录、日报必填拦截、目标、反馈、排行和 AI 配置测试。
+## 项目结构
 
-不需要安装 Node，不需要配置 Supabase，也不需要购买 Render 或 Railway。
+```text
+oneira/
+├── public/index.html              # 前端单页应用、样式和交互
+├── public/manus-routes.json       # 页面路由清单
+├── server.js                      # API、认证、权限、事务、Socket.IO
+├── db/migrations/                 # 幂等数据库迁移
+│   ├── 001_initial.sql
+│   ├── 002_reviews_annotations.sql
+│   ├── 003_ranking_ai.sql
+│   ├── 004_ordering_system.sql
+│   ├── 005_received_goals.sql
+│   └── 006_audit_retention.sql
+├── scripts/migrate.js             # 迁移与初始化种子
+├── Dockerfile                     # 生产容器入口
+├── DEPLOY.md                      # Manus Space 发布说明
+├── MANUS.md                       # 运行维护与故障排查
+└── CHANGELOG.md                   # 版本更新记录
+```
 
-## 本地检查
+## 本地运行
+
+要求 Node.js 18+ 和一个 MySQL 兼容数据库：
 
 ```bash
 npm ci
+cp .env.example .env
+# 编辑 .env，至少填写 DATABASE_URL 和随机 JWT_SECRET
 npm run migrate
 npm start
 ```
 
-需要设置 `DATABASE_URL` 和可选的 `JWT_SECRET`。生产环境不要使用默认 JWT secret。
+服务启动后访问 `http://localhost:3000`，健康检查：
 
-## 目录
+```bash
+curl http://localhost:3000/api/health
+```
 
-- `server.js`：Express API、认证、角色权限、迁移和数据联动。
-- `db/migrations/001_initial.sql`：MySQL 基础迁移。
-- `db/migrations/002_reviews_annotations.sql`：复盘与日历标注迁移。
-- `db/migrations/003_ranking_ai.sql`：排行指标与 AI 配置迁移。
-- `scripts/migrate.js`：幂等迁移和初始化种子。
-- `public/index.html`：手机优先的紫罗兰新拟物工作台界面。
-- `public/manus-routes.json`：Manus Space 页面路由清单。
-- `Dockerfile`：生产容器入口。
-- `MAINTENANCE.md`：日常维护、发布和故障排查说明。
+生产环境不要使用默认 JWT secret，也不要把真实数据库连接串、AI API Key 或账号密码提交到 GitHub。
 
-## 营业日报模板与自动计算
+## Manus Space 发布
 
-店长端支持把门店营业日报整段粘贴导入，也支持复制当前模板。系统自动计算：
+项目已配置 `server=true`、`database=true`、Docker 运行入口和 `/api/health` 健康检查。发布步骤见 [DEPLOY.md](./DEPLOY.md)。正式地址为：
 
-- 实收金额 = 总营业额 − 优惠/折扣券合计。
-- 平台收入 = 美团团购 + 美团外卖 + 抖音团购 + 淘宝闪购。
-- 试吃占比 = 试吃金额 ÷（试吃金额 + 报损金额 + 总营业额）。
-- 报损占比 = 报损金额 ÷（试吃金额 + 报损金额 + 总营业额）。
+<https://oneira-4v8y8pei.manus.space>
 
-目标日历按天显示目标、营业额、完成率和标注；运营/管理员可按门店筛选。
+Preview 与正式发布共用项目数据库，验收时产生的数据会保留。上线后请立即修改管理员、运营和门店口令。
+
+## GitHub 同步
+
+当前公开仓库：<https://github.com/wojiaoqiuhuan/oneira_v5>
+
+Manus Space 的托管主仓库与 GitHub 镜像分开维护。更新流程为：
+
+```bash
+git fetch origin main
+git push origin main                 # 保存 Manus Space checkpoint
+# 将同一份 main 同步到 GitHub
+git push github main
+```
+
+不要把 `.env`、数据库凭据、AI Key、运行日志或临时文件提交到仓库。
+
+## 默认初始化数据
+
+首次迁移会幂等创建演示门店、角色和日报字段。具体种子值以 `scripts/migrate.js` 当前代码为准；正式使用前请管理员登录 **系统管理** 修改所有初始口令并确认门店口令。
+
+## 许可证与使用说明
+
+本仓库用于 ONEIRA 梦面包项目的公开代码协作和部署记录。若用于其他门店或组织，请自行完成账号、数据、品牌素材、隐私与合规配置。
