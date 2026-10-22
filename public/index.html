@@ -252,6 +252,14 @@ body.modal-open{overflow:hidden;overscroll-behavior:none}
 .reviewEditor .btn.orange{background:linear-gradient(135deg,#8b5cf6,#d94687);box-shadow:0 9px 18px rgba(118,67,203,.28);font-weight:800}
 @media(max-width:600px){.reviewSubmitCta{width:100%;justify-content:center;min-height:46px;font-size:14px;order:-1}.reviewEditor .headActions{position:sticky;bottom:calc(8px + env(safe-area-inset-bottom));z-index:4;padding:8px;border-radius:15px;background:rgba(248,247,255,.84);backdrop-filter:blur(14px);box-shadow:0 -8px 20px rgba(87,66,139,.10)}.reviewEditor .btn.orange{flex:1;min-height:44px}}
 </style>
+
+<style>
+/* Mobile safe-area spacing: keep the brand row clear of the system status/navigation chrome. */
+@media (max-width:600px){
+  .top{padding-top:calc(17px + env(safe-area-inset-top));}
+  .brandline,.topright{transform:translateY(2px)}
+}
+</style>
 </head>
 <body><div id="app"><div class="bootScreen"><div class="bootMark">ONEIRA</div><div class="bootSpinner"></div><p>正在连接运营工作台…</p><small>首次打开可能需要几秒同步数据</small><button class="btn light small" onclick="login()">进入登录页</button></div></div><div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="modalbox" id="modalbox"></div></div><div id="toast" class="toast"></div>
 <script>
