@@ -197,6 +197,8 @@ app.get('/api/analytics', auth(['store','ops', 'admin']), async (req, res) => {
   if (requestedStore && requestedStore !== 'all') { filter += ' AND r.store_id=?'; params.push(Number(requestedStore)); }
   const metric = req.query.metric || 'revenue';
   const totalRevenueSql = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.totalRevenue')) AS DECIMAL(14,4)),CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.revenue')) AS DECIMAL(14,4)),0)";
+  const receivedAmountSql = `COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.received')) AS DECIMAL(14,4)),${totalRevenueSql}-COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.discounts')) AS DECIMAL(14,4)),0),0)`;
+  const discountAmountSql = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.discounts')) AS DECIMAL(14,4)),0)";
   const trialAmountSql = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.trialAmount')) AS DECIMAL(14,4)),0)";
   const wasteAmountSql = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.wasteAmount')) AS DECIMAL(14,4)),0)";
   const rateBaseSql = `(${trialAmountSql}+${wasteAmountSql}+${totalRevenueSql})`;
@@ -205,6 +207,8 @@ app.get('/api/analytics', auth(['store','ops', 'admin']), async (req, res) => {
   const byStore = await q(`SELECT r.store_id,s.name AS store_name,
     COUNT(*) AS report_days,
     COALESCE(SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.totalRevenue')) AS DECIMAL(14,2)),CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.revenue')) AS DECIMAL(14,2)))),0) AS revenue,
+    COALESCE(SUM(${receivedAmountSql}),0) AS received,
+    COALESCE(SUM(${discountAmountSql}),0) AS discounts,
     COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.orders')) AS DECIMAL(14,2))),0) AS orders,
     COALESCE(AVG(${trialRateSql}),0) AS trial_rate,
     COALESCE(AVG(${wasteRateSql}),0) AS waste_rate,
@@ -213,22 +217,24 @@ app.get('/api/analytics', auth(['store','ops', 'admin']), async (req, res) => {
     GROUP BY r.store_id,s.name ORDER BY ${metric === 'orders' ? 'orders' : metric === 'wasteRate' ? 'waste_rate' : metric === 'members' ? 'members' : 'revenue'} DESC`, params);
   const byDay = await q(`SELECT DATE_FORMAT(r.report_date,'%Y-%m-%d') AS day,
     COALESCE(SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.totalRevenue')) AS DECIMAL(14,2)),CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.revenue')) AS DECIMAL(14,2)))),0) AS revenue,
+    COALESCE(SUM(${receivedAmountSql}),0) AS received,
+    COALESCE(SUM(${discountAmountSql}),0) AS discounts,
     COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.orders')) AS DECIMAL(14,2))),0) AS orders,
     COALESCE(AVG(${trialRateSql}),0) AS trial_rate,
     COALESCE(AVG(${wasteRateSql}),0) AS waste_rate,
     COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.members')) AS DECIMAL(14,2))),0) AS members
     FROM daily_reports r ${filter} GROUP BY r.report_date ORDER BY r.report_date`, params);
   const totals = byStore.reduce((acc, row) => ({
-    revenue: acc.revenue + Number(row.revenue || 0), orders: acc.orders + Number(row.orders || 0),
+    revenue: acc.revenue + Number(row.revenue || 0), received: acc.received + Number(row.received || 0), discounts: acc.discounts + Number(row.discounts || 0), orders: acc.orders + Number(row.orders || 0),
     members: acc.members + Number(row.members || 0), reportDays: acc.reportDays + Number(row.report_days || 0),
     trialRateSum: acc.trialRateSum + Number(row.trial_rate || 0) * Number(row.report_days || 0),
     wasteRateSum: acc.wasteRateSum + Number(row.waste_rate || 0) * Number(row.report_days || 0)
-  }), { revenue: 0, orders: 0, members: 0, reportDays: 0, trialRateSum: 0, wasteRateSum: 0 });
+  }), { revenue: 0, received: 0, discounts: 0, orders: 0, members: 0, reportDays: 0, trialRateSum: 0, wasteRateSum: 0 });
   const result = {
     from, to, metric,
-    totals: { revenue: totals.revenue, orders: totals.orders, members: totals.members, reportDays: totals.reportDays, trialRate: totals.reportDays ? totals.trialRateSum / totals.reportDays : 0, wasteRate: totals.reportDays ? totals.wasteRateSum / totals.reportDays : 0, avgOrderValue: totals.orders ? totals.revenue / totals.orders : 0 },
-    byStore: byStore.map(row => ({ storeId: row.store_id, storeName: row.store_name, reportDays: Number(row.report_days || 0), revenue: Number(row.revenue || 0), orders: Number(row.orders || 0), trialRate: Number(row.trial_rate || 0), wasteRate: Number(row.waste_rate || 0), members: Number(row.members || 0), avgOrderValue: Number(row.orders || 0) ? Number(row.revenue || 0) / Number(row.orders || 0) : 0, metricValues: {} })),
-    byDay: byDay.map(row => ({ day: row.day, revenue: Number(row.revenue || 0), orders: Number(row.orders || 0), trialRate: Number(row.trial_rate || 0), wasteRate: Number(row.waste_rate || 0), members: Number(row.members || 0), avgOrderValue: Number(row.orders || 0) ? Number(row.revenue || 0) / Number(row.orders || 0) : 0 })), details: (await q(`SELECT r.id,r.report_date,r.created_at,r.updated_at,r.submitted_by_name,s.name AS store_name,r.payload FROM daily_reports r JOIN stores s ON s.id=r.store_id WHERE r.report_date BETWEEN ? AND ? ${requestedStore&&requestedStore!=='all'?'AND r.store_id=?':''} ORDER BY r.report_date DESC,r.id DESC`, requestedStore&&requestedStore!=='all'?[from,to,Number(requestedStore)]:[from,to])).map(r=>({...r,payload:json(r.payload)}))
+    totals: { revenue: totals.revenue, received: totals.received, discounts: totals.discounts, orders: totals.orders, members: totals.members, reportDays: totals.reportDays, trialRate: totals.reportDays ? totals.trialRateSum / totals.reportDays : 0, wasteRate: totals.reportDays ? totals.wasteRateSum / totals.reportDays : 0, avgOrderValue: totals.orders ? totals.revenue / totals.orders : 0 },
+    byStore: byStore.map(row => ({ storeId: row.store_id, storeName: row.store_name, reportDays: Number(row.report_days || 0), revenue: Number(row.revenue || 0), received: Number(row.received || 0), discounts: Number(row.discounts || 0), orders: Number(row.orders || 0), trialRate: Number(row.trial_rate || 0), wasteRate: Number(row.waste_rate || 0), members: Number(row.members || 0), avgOrderValue: Number(row.orders || 0) ? Number(row.revenue || 0) / Number(row.orders || 0) : 0, metricValues: {} })),
+    byDay: byDay.map(row => ({ day: row.day, revenue: Number(row.revenue || 0), received: Number(row.received || 0), discounts: Number(row.discounts || 0), orders: Number(row.orders || 0), trialRate: Number(row.trial_rate || 0), wasteRate: Number(row.waste_rate || 0), members: Number(row.members || 0), avgOrderValue: Number(row.orders || 0) ? Number(row.revenue || 0) / Number(row.orders || 0) : 0 })), details: (await q(`SELECT r.id,r.report_date,r.created_at,r.updated_at,r.submitted_by_name,s.name AS store_name,r.payload FROM daily_reports r JOIN stores s ON s.id=r.store_id WHERE r.report_date BETWEEN ? AND ? ${requestedStore&&requestedStore!=='all'?'AND r.store_id=?':''} ORDER BY r.report_date DESC,r.id DESC`, requestedStore&&requestedStore!=='all'?[from,to,Number(requestedStore)]:[from,to])).map(r=>({...r,payload:json(r.payload)}))
   };
   const detailRows = result.details || [];
   for (const row of result.byStore) { const items=detailRows.filter(d=>Number(d.store_id||0)===Number(row.storeId)||d.store_name===row.storeName); for (const cfg of rankingConfigs) { const vals=items.map(d=>Number((d.payload||{})[cfg.source_key])).filter(Number.isFinite); row.metricValues[cfg.metric_key]=cfg.aggregation==='avg'?(vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0):vals.reduce((a,b)=>a+b,0); } }
