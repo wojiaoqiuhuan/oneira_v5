@@ -1,0 +1,5 @@
+
+/* Final contrast cleanup for legacy component rules with higher specificity. */
+.sidebar .nav button:not(.on),.mobileDrawerNav button:not(.on),.mobileNav button:not(.on){background:rgba(24,41,66,.68)!important;color:var(--muted)!important}.sidebar .nav button:not(.on) .icon,.mobileDrawerNav button:not(.on) .icon,.mobileNav button:not(.on) .icon{background:transparent!important;color:var(--muted)!important}
+.productionBreakdown{background:rgba(48,52,83,.58)!important;border-color:rgba(218,234,255,.20)!important;color:var(--ink)!important}.weeklyComparisonBadge{background:rgba(39,61,91,.62)!important;color:var(--ink)!important;border-color:rgba(218,234,255,.20)!important}.headActions{background:rgba(39,61,91,.62)!important;border-color:rgba(218,234,255,.20)!important}.headActions .btn{background:rgba(133,117,250,.82)!important;color:#fff!important}
+.chip{background:rgba(39,61,91,.64)!important;color:#c4cfde!important}.chip:hover{background:rgba(56,80,113,.76)!important;color:#fff!important}
