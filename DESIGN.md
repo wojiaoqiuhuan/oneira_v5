@@ -79,7 +79,3 @@ The mobile surface is a distinct Midnight Operations Cockpit rather than a light
 This pass replaces the previous outline-card treatment. Mobile surfaces use elevation by lightness, inset depth, environmental light and grouped data islands; ordinary panels do not use bright white borders. Recent reports are a dark record stream, not white cards. The top shell reserves the device safe area, and the dock is part of the sheet interaction: it exits while the sheet is open.
 
 **Signature move:** layered data islands with a quiet inner highlight and a colored signal edge, rather than a grid of outlined cards.
-
-## Isolated mobile cockpit v1
-
-The mobile home route now renders its own semantic structure (`m-cockpit`, `m-stage`, `m-islands`, `m-records`) rather than reusing the desktop `.card` grid. The mobile command bar and sheet also have independent markup and CSS. This is the structural foundation for subsequent mobile pages; desktop markup, APIs, permissions and calculations remain unchanged.
