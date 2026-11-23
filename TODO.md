@@ -9,5 +9,3 @@
 - [x] 移动端浮动控制台 v3：iOS 风格底部悬浮 Dock、深色菜单 Sheet、安全区适配、44px 以上触控目标和完整权限导航。
 
 - [x] 移动端 Midnight Operations Cockpit：重构为深靛蓝高对比驾驶舱，Dock 强制固定可见，支持竖屏/横屏双布局和 reduced-motion。
-
-- [x] Material Cockpit v5：去白边、重做数据岛和日报记录流，修复状态栏安全区及 Dock/Sheet 层级。
