@@ -67,3 +67,8 @@ This pass updates the shell, dashboard surfaces, mobile navigation, drawer hiera
 ## Mobile console v3
 
 The mobile navigation uses an iOS-inspired floating dock: two labelled 54px actions, current page and full menu, inside a dark translucent capsule with safe-area spacing. Secondary navigation opens as a bottom sheet with a grab handle, large touch targets, contained scrolling, explicit close action and full role-aware navigation. The design borrows platform ergonomics, not another product's brand.
+
+
+## Light material v4
+
+The recovered light theme now uses surface depth instead of bright outlines: warm-white planes, restrained inner highlights, and soft lower elevation. The mobile dock is viewport-bound with explicit width constraints and safe-area offsets; the sheet is height-capped and scroll-contained.
