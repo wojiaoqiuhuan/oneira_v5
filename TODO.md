@@ -12,5 +12,3 @@
 
 - [x] Material Cockpit v5：去白边、重做数据岛和日报记录流，修复状态栏安全区及 Dock/Sheet 层级。
 - [x] 移动端结构拆分 v1：总览页、Dock、菜单 Sheet 脱离旧 `.card/.mobileNav` 结构。
-
-- [x] 移动可读性 v2：修复白字白底、压缩菜单 Sheet、日报列表等高单行化、恢复彩色数据岛。

@@ -83,8 +83,3 @@ This pass replaces the previous outline-card treatment. Mobile surfaces use elev
 ## Isolated mobile cockpit v1
 
 The mobile home route now renders its own semantic structure (`m-cockpit`, `m-stage`, `m-islands`, `m-records`) rather than reusing the desktop `.card` grid. The mobile command bar and sheet also have independent markup and CSS. This is the structural foundation for subsequent mobile pages; desktop markup, APIs, permissions and calculations remain unchanged.
-
-
-## Mobile structure v2 readability pass
-
-All legacy mobile business pages now receive a readable dark fallback surface rather than inheriting white text onto white cards. Report history uses fixed-height record strips with stable columns and ellipsis. The command sheet is capped and scroll-contained; color islands are restored for metric hierarchy.
