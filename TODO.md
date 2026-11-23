@@ -7,3 +7,5 @@
 - [x] ONEIRA OS 第二阶段视觉强化：明显区分桌面侧栏、内容区、首页指标、日报操作区和手机底部菜单，同时保持完整导航。
 
 - [x] 移动端浮动控制台 v3：iOS 风格底部悬浮 Dock、深色菜单 Sheet、安全区适配、44px 以上触控目标和完整权限导航。
+
+- [x] 移动端 Midnight Operations Cockpit：重构为深靛蓝高对比驾驶舱，Dock 强制固定可见，支持竖屏/横屏双布局和 reduced-motion。
