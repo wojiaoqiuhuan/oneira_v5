@@ -72,3 +72,10 @@ The mobile navigation uses an iOS-inspired floating dock: two labelled 54px acti
 ## Mobile cockpit v4
 
 The mobile surface is a distinct Midnight Operations Cockpit rather than a light glass variation: high-contrast midnight surfaces, data-island colors, a guaranteed fixed dock above the iOS safe area, and a bottom sheet for the full role-aware navigation. Landscape mode expands metrics to four columns and the menu to three columns; portrait mode uses two columns and progressive disclosure.
+
+
+## Material cockpit v5
+
+This pass replaces the previous outline-card treatment. Mobile surfaces use elevation by lightness, inset depth, environmental light and grouped data islands; ordinary panels do not use bright white borders. Recent reports are a dark record stream, not white cards. The top shell reserves the device safe area, and the dock is part of the sheet interaction: it exits while the sheet is open.
+
+**Signature move:** layered data islands with a quiet inner highlight and a colored signal edge, rather than a grid of outlined cards.
