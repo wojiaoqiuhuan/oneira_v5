@@ -67,8 +67,3 @@ This pass updates the shell, dashboard surfaces, mobile navigation, drawer hiera
 ## Mobile console v3
 
 The mobile navigation uses an iOS-inspired floating dock: two labelled 54px actions, current page and full menu, inside a dark translucent capsule with safe-area spacing. Secondary navigation opens as a bottom sheet with a grab handle, large touch targets, contained scrolling, explicit close action and full role-aware navigation. The design borrows platform ergonomics, not another product's brand.
-
-
-## Mobile cockpit v4
-
-The mobile surface is a distinct Midnight Operations Cockpit rather than a light glass variation: high-contrast midnight surfaces, data-island colors, a guaranteed fixed dock above the iOS safe area, and a bottom sheet for the full role-aware navigation. Landscape mode expands metrics to four columns and the menu to three columns; portrait mode uses two columns and progressive disclosure.
