@@ -62,3 +62,8 @@ This pass updates the shell, dashboard surfaces, mobile navigation, drawer hiera
 - Keeps the navigation complete and visible through the full sidebar / bottom sheet.
 - Keeps numbers left-anchored or right-aligned with tabular numerals where applicable.
 - Provides high-contrast focus rings, touch targets and reduced-motion fallbacks.
+
+
+## Mobile console v3
+
+The mobile navigation uses an iOS-inspired floating dock: two labelled 54px actions, current page and full menu, inside a dark translucent capsule with safe-area spacing. Secondary navigation opens as a bottom sheet with a grab handle, large touch targets, contained scrolling, explicit close action and full role-aware navigation. The design borrows platform ergonomics, not another product's brand.
